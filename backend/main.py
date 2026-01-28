@@ -10,6 +10,7 @@ import shutil
 import pandas as pd
 from pydantic import BaseModel
 from datetime import date, datetime
+from fastapi.middleware.cors import CORSMiddleware
 
 # Authentication model
 class AuthModel(BaseModel):
@@ -53,7 +54,23 @@ def get_current_user(authorization: str = Header(...)):
         return {"id": user.id, "email": user.email}
     return user
 
+
+
 app = FastAPI()
+
+# Replace with your actual Vercel URL after deployment
+origins = [
+    "https://your-app-name.vercel.app", 
+    "http://localhost:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Explicitly allow your frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # IMPORTANT: Create the folders if they don't exist
 os.makedirs("temp", exist_ok=True)

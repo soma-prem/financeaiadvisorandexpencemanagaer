@@ -1,0 +1,4851 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.gitignore
+app.py
+backend/__init__.py
+backend/.gitignore
+backend/main.py
+backend/requirements.txt
+backend/runtime.txt
+backend/test_debug.py
+backend/tools/__init__.py
+backend/tools/advisor.py
+backend/tools/analytics.py
+backend/tools/data_processor.py
+backend/tools/llm_config.py
+backend/tools/ocr_processor.py
+backend/tools/statement_processor.py
+backend/tools/supabase_db.py
+backend/tools/tempCodeRunnerFile.py
+check.py
+cmds.txt
+data/budget_limit.json
+data/demo_expense_dataset_100_records_with_payment_modes.csv
+data/guru_data.py
+frontend/.gitignore
+frontend/app/actions.js
+frontend/app/auth/callback/page.jsx
+frontend/app/components/AiAssistant.jsx
+frontend/app/components/AuthComponent.jsx
+frontend/app/components/BackendCharts.jsx
+frontend/app/components/DeleteButton.js
+frontend/app/components/ExpenseChart.js
+frontend/app/components/TransactionConfirmationModal.jsx
+frontend/app/components/UploadComponent.js
+frontend/app/favicon.ico
+frontend/app/globals.css
+frontend/app/layout.jsx
+frontend/app/login/page.jsx
+frontend/app/page.jsx
+frontend/eslint.config.mjs
+frontend/jsconfig.json
+frontend/lib/api.js
+frontend/lib/index.js
+frontend/lib/supabase/client.js
+frontend/lib/supabase/server.js
+frontend/lib/supabaseClient.js
+frontend/middleware.js
+frontend/next-env.d.ts
+frontend/next.config.js
+frontend/package.json
+frontend/postcss.config.mjs
+frontend/public/file.svg
+frontend/public/globe.svg
+frontend/public/next.svg
+frontend/public/vercel.svg
+frontend/public/window.svg
+frontend/README.md
+frontend/tsconfig.json
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".gitignore">
+### 2. `.gitignore`
+This file tells Git which files to ignore. **Crucially, it includes your `.env` file** to protect your Supabase and API keys.
+
+```text
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Environment Variables (CRITICAL)
+.env*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+
+# Local Data/Temp files
+temp/
+data/reports/*.png
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+</file>
+
+<file path="app.py">
+import streamlit as st
+import os
+import sys
+import json
+from PIL import Image
+
+# Import the advisor function AND the calculated variables
+try:
+    from backend.tools.advisor import (
+        chat_with_advisor, 
+        savings_rate, 
+        top_categories, 
+        selected_guru, 
+        spending_summary,
+        process_receipt_tool,
+        process_statement_tool
+    )
+except ImportError:
+    from advisor import chat_with_advisor, savings_rate, top_categories, selected_guru, spending_summary, process_receipt_tool, process_statement_tool
+
+# ===============================================================
+# 1. PATH CONFIGURATION
+# ===============================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPORTS_DIR = os.path.join(BASE_DIR, "data", "reports")
+bar_chart = os.path.join(REPORTS_DIR, "total_spending_by_category_bar_chart.png")
+line_chart = os.path.join(REPORTS_DIR, "monthly_spending_trend_line_chart.png")
+
+# ===============================================================
+# 2. PAGE SETUP
+# ===============================================================
+st.set_page_config(
+    page_title="Personal Finance AI Agent",
+    layout="wide"
+)
+
+st.title("🤖 Personal Finance AI Agent")
+st.caption("Upload receipts, bank statements, or ask questions — your wealth, automated.")
+
+# ===============================================================
+# 3. SIDEBAR STATUS
+# ===============================================================
+st.sidebar.header("System Status")
+if os.path.exists(bar_chart) and os.path.exists(line_chart):
+    st.sidebar.success("✅ Analytics Ready")
+else:
+    st.sidebar.warning("⚠️ Run analysis to generate charts")
+
+# ===============================================================
+# 4. TABS: Chat Advisor & Analytics
+# ===============================================================
+tab_chat, tab_charts = st.tabs(["💬 Chat Advisor", "📊 Visual Analytics"])
+
+# --------------------- CHAT ADVISOR TAB -----------------------
+with tab_chat:
+    # Session state initialization
+    if "last_processed_filename" not in st.session_state:
+        st.session_state.last_processed_filename = None
+
+    # Track B Update: Unified uploader for Images and PDFs
+    uploaded_file = st.file_uploader(
+        "📎 Upload receipt (Image) or Bank Statement (PDF)",
+        type=["jpg", "jpeg", "png", "pdf"],
+        key="main_file_uploader"
+    )
+
+    if uploaded_file and st.session_state.last_processed_filename != uploaded_file.name:
+        # Save temp file
+        temp_dir = os.path.join(BASE_DIR, "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_path = os.path.join(temp_dir, uploaded_file.name)
+        
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        # --- ROUTING LOGIC ---
+        if uploaded_file.type == "application/pdf":
+            st.info(f"📄 PDF Detected: **{uploaded_file.name}**")
+            pdf_password = st.text_input("Enter PDF Password (if required)", type="password")
+            
+            if st.button("🚀 Process Bank Statement"):
+                with st.spinner("Decrypting and parsing bank statement..."):
+                    result = "" 
+                    try:
+                        # Call tool
+                        result = process_statement_tool.invoke({"pdf_path": temp_path, "password": pdf_password})
+                        
+                        if result and isinstance(result, str) and "✅" in result:
+                            st.success(result)
+                            st.session_state.last_processed_filename = uploaded_file.name
+                        else:
+                            st.error(result if result else "❌ Failed to extract data.")
+                    except Exception as e:
+                        st.error(f"❌ System Error: {str(e)}")
+                    finally:
+                        # Track B Best Practice: Cleanup temp files
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+        
+        else:
+            # Traditional Image OCR logic
+            st.image(temp_path, caption="Processing Receipt...", width=300)
+            if st.button("🔍 Extract Receipt Data"):
+                with st.spinner("Running OCR & Preprocessing..."):
+                    result = process_receipt_tool(temp_path)
+                    st.success(result)
+                    st.session_state.last_processed_filename = uploaded_file.name
+
+# --- CHAT INTERFACE ---
+user_input = st.chat_input("Ask about your budget, spending, or Guru advice...")
+
+if user_input:
+    st.chat_message("user").write(user_input)
+    
+    with st.spinner("Thinking..."):
+        response = chat_with_advisor(user_input)
+        
+        if response.strip().startswith("{") and response.strip().endswith("}"):
+            try:
+                clean_response = response.strip().replace("```json", "").replace("```", "")
+                advice_data = json.loads(clean_response)
+                
+                with st.chat_message("assistant"):
+                    st.markdown(f"### 🛡️ {selected_guru}’s Wealth Analysis")
+                    
+                    m1, m2 = st.columns(2)
+                    m1.metric("Savings Rate", f"{savings_rate}%", delta=None if savings_rate > 0 else "DEFICIT", delta_color="inverse")
+                    m2.metric("Top Leak", top_categories[0] if top_categories else "N/A", delta="Highest Spend")
+
+                    st.divider()
+                    st.markdown("#### 🔍 Spending Insight")
+                    st.write(advice_data['spending_insight'])
+                    
+                    st.markdown(f"#### ⚠️ Critical Concern")
+                    st.write(advice_data['financial_concern'])
+
+                    st.markdown("#### 🎯 Recommended Actions")
+                    for action in advice_data['recommended_actions']:
+                        st.markdown(f"✅ {action}")
+
+                    with st.expander("🎓 View Advisor Philosophy"):
+                        st.write(advice_data['principle_guidance'])
+                    st.caption(advice_data['motivation_and_disclaimer'])
+
+            except json.JSONDecodeError:
+                st.chat_message("assistant").write(response)
+        else:
+            st.chat_message("assistant").write(response)
+
+# --------------------- ANALYTICS TAB -------------------------
+with tab_charts:
+    st.subheader("📊 Visual Analytics")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### Spending by Category")
+        if os.path.exists(bar_chart):
+            st.image(bar_chart, use_container_width=True)
+        else:
+            st.info("Chart will appear after data processing.")
+
+    with col2:
+        st.markdown("#### Monthly Spending Trend")
+        if os.path.exists(line_chart):
+            st.image(line_chart, use_container_width=True)
+        else:
+            st.info("Chart will appear after data processing.")
+</file>
+
+<file path="backend/__init__.py">
+
+</file>
+
+<file path="backend/.gitignore">
+### 2. `.gitignore`
+This file tells Git which files to ignore. **Crucially, it includes your `.env` file** to protect your Supabase and API keys.
+
+```text
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Environment Variables (CRITICAL)
+.env*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+
+# Local Data/Temp files
+temp/
+data/reports/*.png
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+</file>
+
+<file path="backend/main.py">
+from fastapi import FastAPI, UploadFile, HTTPException, Form, Depends, Header
+from tools.advisor import chat_with_advisor, process_statement_tool
+from tools.supabase_db import save_transaction, get_user_transactions, delete_transaction, verify_user_token
+from tools.analytics import refresh_analysis
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
+import os
+import shutil
+import pandas as pd
+from pydantic import BaseModel
+from datetime import date, datetime
+
+# Authentication model
+class AuthModel(BaseModel):
+    token: str
+
+# Transaction model for validation
+class TransactionModel(BaseModel):
+    amount: float
+    receiver: str
+    sender: Optional[str] = "Self"
+    date: Optional[str] = None
+    time: Optional[str] = "00:00"
+    transaction_id: Optional[str] = None
+    category: Optional[str] = None
+    ai_confidence: Optional[float] = 0.5
+    corrected: Optional[bool] = False
+
+# Authentication dependency
+def get_current_user(authorization: str = Header(...)):
+    """Extract and verify user from JWT token"""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    
+    token = authorization.split(" ")[1]
+    
+    # Debug log
+    # print(f"Verifying token: {token[:10]}...")
+    
+    try:
+        user = verify_user_token(token)
+    except Exception as e:
+        print(f"AUTH ERROR: {e}")
+        raise HTTPException(status_code=500, detail="Authentication system error. Check backend logs.")
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid token or session expired")
+    
+    # Fix: Ensure we return a dictionary or object compatible with accessing ['id']
+    # The Supabase User object has an 'id' attribute, but pydantic might expect a dict
+    if hasattr(user, 'id'):
+        return {"id": user.id, "email": user.email}
+    return user
+
+app = FastAPI()
+
+# IMPORTANT: Create the folders if they don't exist
+os.makedirs("temp", exist_ok=True)
+os.makedirs("data/reports", exist_ok=True)
+
+# Calculate chart paths the same way analytics module does
+# Get the project root (assuming main.py is in backend/)
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+REPORTS_DIR = os.path.join(DATA_DIR, 'reports')
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
+CHART_PATH_BAR = os.path.join(REPORTS_DIR, 'total_spending_by_category_bar_chart.png')
+CHART_PATH_LINE = os.path.join(REPORTS_DIR, 'monthly_spending_trend_line_chart.png')
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # For testing, allow all; change to localhost:3000 later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.post("/chat")
+async def chat(data: dict, current_user: dict = Depends(get_current_user)):
+    try:
+        msg = data.get("message", "")
+        if not msg:
+            raise ValueError("Empty message")
+        response = chat_with_advisor(msg, current_user["id"])
+        return {"response": response}
+    except Exception as e:
+        print(f"CHAT ERROR: {e}") # This prints the error in your terminal
+        return {"response": "The advisor is temporarily unavailable. Check terminal for errors."}
+
+@app.post("/upload")
+async def upload(
+    file: UploadFile,
+    password: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user)
+):
+    """Extract transaction data from receipt/statement but DO NOT save it"""
+    from tools.ocr_processor import parse_transaction
+    
+    # Use absolute path for temp file
+    BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+    TEMP_DIR = os.path.join(PROJECT_ROOT, "temp")
+    os.makedirs(TEMP_DIR, exist_ok=True)
+    path = os.path.join(TEMP_DIR, file.filename)
+    try:
+        with open(path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        if file.filename.lower().endswith(".pdf"):
+            # PDF processing with password support
+            from tools.statement_processor import unlock_pdf
+            
+            # Try to unlock PDF first
+            unlocked_success, result = unlock_pdf(path, password)
+            
+            if not unlocked_success:
+                if result == "Password Required":
+                    return {
+                        "status": "PDF requires password",
+                        "requires_password": True,
+                        "success": False,
+                        "extracted_data": None
+                    }
+                else:
+                    return {
+                        "status": f"❌ Failed to process PDF: {result}",
+                        "requires_password": False,
+                        "success": False,
+                        "extracted_data": None
+                    }
+            
+            # PDF unlocked successfully, process it directly without confirmation
+            try:
+                unlocked_pdf_path = result  # This is the path to the unlocked PDF
+                result_message = process_statement_tool(unlocked_pdf_path, current_user["id"])
+                
+                # Clean up temp unlocked file
+                try:
+                    os.remove(unlocked_pdf_path)
+                    print(f"✅ Cleaned up temp PDF: {unlocked_pdf_path}")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Warning: Could not clean up temp PDF: {cleanup_error}")
+                
+                # Clean up original uploaded PDF file
+                try:
+                    os.remove(path)
+                    print(f"✅ Cleaned up original PDF: {path}")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Warning: Could not clean up original PDF: {cleanup_error}")
+                
+                return {
+                    "status": result_message,
+                    "requires_password": False,
+                    "success": True,
+                    "extracted_data": None
+                }
+            except Exception as e:
+                print(f"PDF PROCESSING ERROR: {e}")
+                return {
+                    "status": f"❌ Error processing PDF statement: {str(e)}",
+                    "requires_password": False,
+                    "success": False,
+                    "extracted_data": None
+                }
+        else:
+            # Extract data using OCR (but don't save)
+            extracted = parse_transaction(path)
+            
+            # Clean up temp image file after OCR
+            try:
+                os.remove(path)
+                print(f"✅ Cleaned up temp image: {path}")
+            except Exception as cleanup_error:
+                print(f"⚠️ Warning: Could not clean up temp image: {cleanup_error}")
+            
+            if not extracted:
+                return {
+                    "status": "❌ OCR failed to read the image",
+                    "requires_password": False,
+                    "success": False,
+                    "extracted_data": None
+                }
+            
+            # Return extracted data for user confirmation
+            return {
+                "status": "✅ Data extracted successfully. Please review and confirm.",
+                "requires_password": False,
+                "success": True,
+                "extracted_data": extracted
+            }
+    except Exception as e:
+        print(f"UPLOAD ERROR: {e}")
+        # Clean up temp file on error
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"✅ Cleaned up temp file on error: {path}")
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/transactions/confirm")
+async def confirm_transaction(data: dict, current_user: dict = Depends(get_current_user)):
+    """Save a confirmed transaction after user review"""
+    try:
+        # Validate required fields
+        amount = data.get("amount")
+        receiver = data.get("receiver")
+        
+        if not amount or not receiver:
+            raise HTTPException(status_code=400, detail="Amount and receiver are required")
+        
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Amount must be a valid number")
+        
+        # Prepare transaction data
+        transaction_data = {
+            "amount": amount,
+            "receiver": receiver,
+            "sender": data.get("sender", "Self"),
+            "date": data.get("date"),
+            "time": data.get("time", "00:00"),
+            "transaction_id": data.get("transaction_id"),
+            "category": data.get("category"),
+            "ai_confidence": data.get("ai_confidence", 0.5),
+            "corrected": data.get("corrected", False)
+        }
+        
+        # Save to Supabase
+        result = save_transaction(current_user["id"], transaction_data)
+        
+        # Refresh charts
+        refresh_analysis(current_user["id"])
+        
+        return {
+            "status": "Transaction saved successfully",
+            "success": True,
+            "transaction_id": result["id"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"CONFIRM TRANSACTION ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/reports/{chart_id}")
+def get_chart(chart_id: str, current_user: dict = Depends(get_current_user)):
+    # Mapping to actual chart paths (using absolute paths)
+    user_id = current_user["id"]
+    files = {
+        "bar": os.path.join(REPORTS_DIR, f'{user_id}_total_spending_by_category_bar_chart.png'),
+        "line": os.path.join(REPORTS_DIR, f'{user_id}_monthly_spending_trend_line_chart.png'),
+        "pie": os.path.join(REPORTS_DIR, f'{user_id}_spending_distribution_pie_chart.png'),
+        "merchants": os.path.join(REPORTS_DIR, f'{user_id}_top_merchants_chart.png')
+    }
+    file_path = files.get(chart_id)
+    
+    # Debug: Print path information
+    print(f"Requested chart: {chart_id} for user {user_id}")
+    print(f"Chart path: {file_path}")
+    print(f"Path exists: {os.path.exists(file_path) if file_path else 'N/A'}")
+    
+    # If chart doesn't exist, we can't auto-generate without user context easily in GET
+    # So we skip auto-generation or we'd need to pass user_id in query params
+    if not file_path or not os.path.exists(file_path):
+        print(f"Chart {chart_id} not found at {file_path}")
+        # Try to regenerate if missing
+        refresh_analysis(user_id)
+    
+    # Check again after generation
+    if file_path and os.path.exists(file_path):
+        print(f"Serving chart from: {file_path}")
+        return FileResponse(file_path, media_type="image/png")
+    
+    return {"error": f"Chart {chart_id} not available"}
+
+@app.post("/reports/refresh")
+def refresh_charts(current_user: dict = Depends(get_current_user)):
+    """Manually refresh/generate charts"""
+    try:
+        success = refresh_analysis(current_user["id"])
+        if success:
+            return {"status": "Charts refreshed successfully"}
+        return {"status": "No data available to generate charts"}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.get("/expenses")
+def get_expenses(current_user: dict = Depends(get_current_user)):
+    """Get all transactions for the authenticated user"""
+    try:
+        transactions = get_user_transactions(current_user["id"])
+        
+        # Transform to frontend format
+        expenses = []
+        for idx, tx in enumerate(transactions):
+            expenses.append({
+                "id": tx["id"],
+                "date": tx["date"],
+                "time": tx["time"],
+                "sender": tx["sender"],
+                "receiver": tx["receiver"],
+                "transaction_id": tx["transaction_id"],
+                "category": tx["category"],
+                "amount": float(tx["amount"])
+            })
+        
+        return expenses
+    except Exception as e:
+        print(f"GET EXPENSES ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/expenses/{expense_id}")
+def delete_expense(expense_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a transaction for the authenticated user"""
+    try:
+        success = delete_transaction(expense_id, current_user["id"])
+        if not success:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        
+        # Refresh charts
+        refresh_analysis(current_user["id"])
+        
+        return {"status": "Expense deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"DELETE EXPENSE ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+</file>
+
+<file path="backend/runtime.txt">
+python-3.11.9
+</file>
+
+<file path="backend/test_debug.py">
+import sys
+sys.path.append('.')
+
+from tools.supabase_db import get_user_transactions
+from tools.data_processor import load_and_clean_data
+import pandas as pd
+
+# Test with your user ID
+user_id = '3475908c-9a30-43ce-84e8-53ca57adc7de'
+print(f'Testing with user_id: {user_id}')
+
+# Test direct database call
+transactions = get_user_transactions(user_id)
+print(f'Direct DB result: {len(transactions)} transactions')
+
+# Test data processor
+df = load_and_clean_data(user_id)
+print(f'DataProcessor result: {len(df)} rows')
+print(f'DataProcessor empty: {df.empty}')
+</file>
+
+<file path="backend/tools/__init__.py">
+
+</file>
+
+<file path="backend/tools/advisor.py">
+import os
+import sys
+import json
+import pandas as pd
+from typing import Optional, List
+
+# 1. Get the absolute path of the current file
+current_file_path = os.path.abspath(__file__)
+
+# 2. Go up two levels to reach the Project Root (tools -> backend -> Project Root)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
+
+# 3. Add the Project Root to Python's search list if it's not already there
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Now you can safely import from any folder in the root
+from data.guru_data import FINANCIAL_GURUS
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import create_agent
+from langchain_core.tools import tool
+
+# Import data processor and analytics
+from tools.data_processor import load_and_clean_data, append_new_transaction
+from tools.analytics import (
+    calculate_budget_adherence, 
+    get_spending_by_category, 
+    get_top_n_merchants, 
+    get_monthly_spending_trend,
+    refresh_analysis
+)
+
+# ==================================================================
+# 2. GLOBAL PROCESSING FUNCTIONS
+# ==================================================================
+
+def enrich_transaction_ai(description: str, amount: float) -> dict:
+    """
+    Uses LLM to clean up the receiver name and categorize the transaction.
+    Returns a dict: {"receiver": "Clean Name", "category": "Category"}
+    """
+    try:
+        from langchain_core.messages import HumanMessage
+        
+        prompt = f"""
+        Analyze this bank statement transaction to identify the actual merchant/receiver and category.
+        
+        Transaction Description: "{description}"
+        Amount: {amount}
+        
+        Task:
+        1. Extract the CLEANEST possible receiver/merchant name (remove UPI IDs, bank codes, dates, "UPI/DR/", etc.).
+           - Example: "UPI/DR/5701.../PAVNEET/SBIN..." -> "Pavneet"
+           - Example: "Pos/Starbucks/12345" -> "Starbucks"
+        2. Categorize the transaction into exactly one of these: 
+           [Food, Travel, Shopping, Bills, Entertainment, Health, Education, Investment, Rent, Groceries, Transfer, Salary, Other]
+        
+        Output strictly in JSON format:
+        {{
+            "receiver": "Clean Name",
+            "category": "Category"
+        }}
+        """
+        
+        response = llm.invoke([HumanMessage(content=prompt)])
+        content = response.content.strip()
+        
+        # Clean up code blocks if present
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].strip()
+            
+        return json.loads(content)
+    except Exception as e:
+        print(f"AI Enrichment Error: {e}")
+        # Fallback
+        return {"receiver": description[:20], "category": "Uncategorized"}
+
+def process_statement_tool(pdf_path: str, user_id: str) -> str:
+    """Process bank statement PDF -> save transactions -> refresh analytics -> delete PDF"""
+    from tools.statement_processor import parse_bank_statement
+    from tools.supabase_db import save_transaction
+    import time
+    
+    if not os.path.exists(pdf_path):
+        return "❌ PDF file not found."
+        
+    df = parse_bank_statement(pdf_path)
+    if df is None or df.empty:
+        return "❌ Failed to parse bank statement or empty."
+        
+    count = 0
+    # Iterate and save
+    for _, row in df.iterrows():
+        # Normalize keys to lower case for safer access
+        row_data = {str(k).lower(): v for k, v in row.to_dict().items()}
+        
+        # Extract basic fields with fallbacks
+        # Added 'transaction reference' and 'details' to fallbacks
+        date_val = row_data.get('date', row_data.get('txn date', 'Unknown'))
+        
+        receiver_raw = row_data.get('description', 
+                       row_data.get('particulars', 
+                       row_data.get('narration', 
+                       row_data.get('transaction reference', 
+                       row_data.get('details', 'Unknown')))))
+        
+        # Amount handling: Check for debit/withdrawal or generic amount
+        raw_amount = row_data.get('debit', row_data.get('withdrawal', row_data.get('amount', 0)))
+        
+        # Clean amount string if needed
+        try:
+            import math
+            if isinstance(raw_amount, str):
+                # Remove currency symbols and commas
+                clean_amount = raw_amount.replace(',', '').replace('₹', '').strip()
+                # Handle empty strings
+                if not clean_amount:
+                    amount_val = 0
+                elif clean_amount.replace('.', '').isdigit():
+                     amount_val = float(clean_amount)
+                else:
+                    amount_val = 0
+            else:
+                amount_val = float(raw_amount) if raw_amount else 0
+                
+            # Handle NaN and infinite values
+            if math.isnan(amount_val) or math.isinf(amount_val):
+                continue  # Skip this transaction
+                
+        except (ValueError, TypeError):
+            continue  # Skip this transaction if amount is invalid
+            
+        # Skip if amount is 0 or negative
+        if amount_val <= 0:
+            continue
+            
+        transaction_id = row_data.get('ref no', row_data.get('cheque/ref no', row_data.get('txn id', row_data.get('ref.no./chq.no.', 'Unknown'))))
+        
+        # ---------------------------------------------------------
+        # AI ENRICHMENT STEP
+        # ---------------------------------------------------------
+        # Use AI to clean the receiver name and categorize
+        enriched = enrich_transaction_ai(str(receiver_raw), amount_val)
+        
+        data = {
+            "date": str(date_val),
+            "time": "00:00",
+            "sender": "Self",
+            "receiver": enriched.get("receiver", str(receiver_raw)),
+            "transaction_id": str(transaction_id),
+            "category": enriched.get("category", "Uncategorized"),
+            "amount": amount_val,
+            "ai_confidence": 0.9, 
+            "corrected": False
+        }
+        
+        # Save to Supabase instead of CSV
+        save_transaction(user_id, data)
+        count += 1
+        
+    # ✅ Refresh charts for this user
+    from tools.analytics import refresh_analysis
+    refresh_analysis(user_id)
+    
+    # ✅ DELETE TEMP PDF
+    try:
+        os.remove(pdf_path)
+    except Exception:
+        pass
+        
+    return f"✅ Statement processed! Successfully imported {count} new transactions into your records."
+
+# ==================================================================
+# 1. PATH & API CONFIG
+# ==================================================================
+
+# Updated for: backend/tools/advisor.py
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
+from tools.llm_config import get_llm
+
+llm = get_llm()
+
+# ==================================================================
+# 2. TOOLS GENERATOR
+# ==================================================================
+
+def create_tools(user_id: str):
+    """Creates a list of tools bound to the specific user_id."""
+    
+    @tool
+    def budget_status_check(query: str) -> str:
+        """Check spending against budget."""
+        df = load_and_clean_data(user_id)
+        return json.dumps(calculate_budget_adherence(df), indent=2)
+
+    @tool
+    def spending_analytics_tool(query: str) -> str:
+        """Category & merchant breakdown."""
+        df = load_and_clean_data(user_id)
+        return json.dumps({
+            "categories": get_spending_by_category(df),
+            "top_merchants": get_top_n_merchants(df, n=5)
+        }, indent=2)
+
+    @tool
+    def analyze_trends_tool(query: str) -> str:
+        """Monthly spending trends."""
+        df = load_and_clean_data(user_id)
+        return json.dumps(get_monthly_spending_trend(df), indent=2)
+
+    @tool
+    def process_receipt_tool(image_path: str) -> str:
+        """OCR receipt -> save extracted data -> refresh analytics -> delete image"""
+        from tools.ocr_processor import (
+            ocr_space,
+            extract_amount,
+            extract_receiver,
+            extract_date_time,
+            extract_sender,
+            extract_transaction_id
+        )
+
+        if not os.path.exists(image_path):
+            return "❌ Image file not found."
+
+        raw_text = ocr_space(image_path)
+        try:
+            os.remove(image_path)
+        except Exception:
+            pass
+            
+        return (
+            f"✅ Receipt processed successfully!\n\n"
+            f"💸 Amount: ₹{transaction_data['amount']}\n"
+            f"🏪 Receiver: {transaction_data['receiver']}\n"
+            f"📅 Date: {transaction_data['date']} {transaction_data['time']}"
+        )
+        
+    @tool
+    def process_statement_tool(pdf_path: str, user_id: str) -> str:
+        """Process bank statement PDF -> save transactions -> refresh analytics -> delete PDF"""
+        from tools.statement_processor import parse_bank_statement
+        from tools.supabase_db import save_transaction
+        import time
+        
+        if not os.path.exists(pdf_path):
+            return "❌ PDF file not found."
+            
+        df = parse_bank_statement(pdf_path)
+        if df is None or df.empty:
+            return "❌ Failed to parse bank statement or empty."
+            
+        count = 0
+        # Iterate and save
+        for _, row in df.iterrows():
+            # Normalize keys to lower case for safer access
+            row_data = {str(k).lower(): v for k, v in row.to_dict().items()}
+            
+            # Extract basic fields with fallbacks
+            # Note: Bank statement formats vary wildly. This is a best-effort mapping.
+            date_val = row_data.get('date', row_data.get('txn date', 'Unknown'))
+            
+            receiver_val = row_data.get('description', row_data.get('particulars', row_data.get('narration', 'Unknown')))
+            
+            # Amount handling: Check for debit/withdrawal or generic amount
+            raw_amount = row_data.get('debit', row_data.get('withdrawal', row_data.get('amount', 0)))
+            
+            # Clean amount string if needed
+            try:
+                if isinstance(raw_amount, str):
+                    # Remove currency symbols and commas
+                    clean_amount = raw_amount.replace(',', '').replace('₹', '').strip()
+                    if clean_amount.replace('.', '').isdigit():
+                         amount_val = float(clean_amount)
+                    else:
+                        amount_val = 0
+                else:
+                    amount_val = float(raw_amount)
+            except (ValueError, TypeError):
+                amount_val = 0
+                
+            # Skip if amount is 0 or negative (unless we want to track refunds, but usually expenses are positive here)
+            # If the statement uses negative for debits, we might need abs(). 
+            # Assuming positive for now as per typical 'Debit' columns.
+            if amount_val <= 0:
+                continue
+                
+            transaction_id = row_data.get('ref no', row_data.get('cheque/ref no', row_data.get('txn id', 'Unknown')))
+            
+            data = {
+                "date": str(date_val),
+                "time": "00:00",
+                "sender": "Self",
+                "receiver": str(receiver_val),
+                "transaction_id": str(transaction_id),
+                "category": "Uncategorized",
+                "amount": amount_val,
+                "ai_confidence": 1.0, 
+                "corrected": False
+            }
+            
+            # Save to Supabase instead of CSV
+            save_transaction(user_id, data)
+            count += 1
+            # Small delay to avoid hammering DB if needed, or just proceed
+            
+        # ✅ Refresh charts for this user
+        from tools.analytics import refresh_analysis
+        refresh_analysis(user_id)
+        
+        # ✅ DELETE TEMP PDF
+        try:
+            os.remove(pdf_path)
+        except Exception:
+            pass
+            
+        return f"✅ Statement processed! Successfully imported {count} new transactions into your records."
+        
+    return [
+        budget_status_check,
+        spending_analytics_tool,
+        analyze_trends_tool,
+        process_receipt_tool,
+        process_statement_tool
+    ]
+
+# ==================================================================
+# 3. COMPUTE METRICS & CONTEXT
+# ==================================================================
+
+def get_financial_context(user_id: str):
+    """
+    Fetches user data from Supabase and computes metrics for the system prompt.
+    """
+    try:
+        df = load_and_clean_data(user_id)
+    except Exception as e:
+        print(f"DEBUG: Error in get_financial_context: {e}")
+        # Return fallback context if data loading fails
+        return {
+            "top_categories": [],
+            "savings_rate": 0.0,
+            "spending_summary": "Unable to load transaction data. Please try again.",
+            "liabilities": 0.0,
+            "recent_transactions": []
+        }
+    
+    # Defaults
+    metrics = {
+        "top_categories": [],
+        "savings_rate": 0.0,
+        "spending_summary": "No transaction data available yet.",
+        "liabilities": 0.0,
+        "recent_transactions": []
+    }
+    
+    if df.empty:
+        return metrics
+
+    # Standardize column names (optional but recommended)
+    df.columns = df.columns.str.strip().str.lower()
+    
+    # Sort by datetime to get recent transactions first (newest first)
+    df_sorted = df.sort_values('datetime', ascending=False)
+    
+    # Get recent transactions (last 5)
+    recent_transactions = []
+    for _, row in df_sorted.head(5).iterrows():
+        recent_transactions.append({
+            "date": row['datetime'].strftime('%d-%m-%Y'),
+            "description": row['description'],
+            "amount": f"₹{row['amount']:,.2f}",
+            "category": row['category']
+        })
+    
+    metrics["recent_transactions"] = recent_transactions
+    
+    # 1. Separate Inflow (Credit) and Outflow (Debit)
+    # Note: load_and_clean_data currently filters for 'Debit' only (expenses)
+    # If we want income, we need to adjust load_and_clean_data or assume income is stored differently.
+    # For now, we work with what we have (expenses).
+    
+    expense_df = df # All rows are expenses based on load_and_clean_data logic
+    
+    total_expenses = expense_df['amount'].sum()
+    total_income = 0 # We might need a way to track income in Supabase to calculate savings rate correctly
+    
+    # 2. Compute Savings Rate (Placeholder if no income data)
+    savings_rate = 0.0
+        
+    # 3. Compute Top Categories (from expense data only)
+    if not expense_df.empty:
+        category_totals = expense_df.groupby('category')['amount'].sum().sort_values(ascending=False)
+        top_categories = category_totals.index.tolist()
+        
+        # 5. Create Spending Summary String
+        summary = (
+            f"User spent a total of ₹{total_expenses:,.2f}. "
+            f"The highest expense was in '{top_categories[0]}' at ₹{category_totals.iloc[0]:,.2f}."
+        )
+    else:
+        top_categories = []
+        summary = "User has no expenses recorded."
+
+    # 4. Compute Liabilities (Identify by description keywords or category name)
+    debt_keywords = ['loan', 'emi', 'interest', 'debt', 'credit card payment', 'mortgage']
+    liability_mask = (
+        expense_df['description'].str.lower().str.contains('|'.join(debt_keywords), na=False) |
+        expense_df['category'].str.lower().str.contains('|'.join(debt_keywords), na=False)
+    )
+    liabilities = expense_df[liability_mask]['amount'].sum()
+    
+    # Update metrics
+    metrics.update({
+        "top_categories": top_categories,
+        "savings_rate": savings_rate,
+        "spending_summary": summary,
+        "liabilities": liabilities
+    })
+    
+    return metrics
+
+def select_financial_principle(top_categories, savings_rate, liabilities):
+    if liabilities > 5000: return "Robert Kiyosaki"
+    if savings_rate < 20: return "Warren Buffett"
+    if top_categories and any(cat in ["Shopping", "Entertainment", "Dining"] for cat in top_categories[:3]): 
+        return "Ramit Sethi"
+    return "Warren Buffett"
+
+# ==================================================================
+# 4. AGENT INTERFACE
+# ==================================================================
+
+def chat_with_advisor(user_input: str, user_id: str) -> str:
+    # 1. Get Context
+    context = get_financial_context(user_id)
+    top_categories = context['top_categories']
+    savings_rate = context['savings_rate']
+    liabilities = context['liabilities']
+    spending_summary = context['spending_summary']
+    recent_transactions = context['recent_transactions']
+    
+    # 2. Select Guru
+    selected_guru = select_financial_principle(top_categories, savings_rate, liabilities)
+    guru_info = FINANCIAL_GURUS.get(selected_guru, FINANCIAL_GURUS["Warren Buffett"])
+    principle_core_idea = guru_info["core_idea"]
+    principle_guidance = guru_info["guidance"]
+    
+    # Format recent transactions for display
+    recent_tx_display = ""
+    if recent_transactions:
+        recent_tx_display = "\nRecent Transactions (newest first):\n"
+        for i, tx in enumerate(recent_transactions, 1):
+            recent_tx_display += f"{i}. {tx['date']} - {tx['description']} - {tx['amount']} ({tx['category']})\n"
+    
+    # 3. Build System Prompt
+    system_prompt = (
+        """
+        You are a professional Personal Finance AI Advisor following the {selected_guru} philosophy.
+        
+        USER DATA CONTEXT:
+        - Spending Summary: {spending_summary}
+        - Top Categories: {top_categories}
+        - Savings Rate: {savings_rate}%
+        {recent_tx_display}
+        
+        MODES OF OPERATION:
+        
+        1. GENERAL CHAT (Plain Text):
+        - If the user greets you or talks casually, respond with a SHORT, friendly PLAIN TEXT message.
+        - Do NOT use JSON for simple greetings or non-financial talk.
+        
+        2. FINANCIAL ADVICE (Raw JSON):
+        - If the user asks for analysis, advice, or about their money, provide a detailed response in RAW JSON.
+        - Do NOT wrap the JSON in markdown code blocks (no ```json).
+        - Format the output as a structured JSON with these EXACT keys:
+          "spending_insight", "financial_concern", "recommended_actions", "principle_guidance", "motivation_and_disclaimer".
+        
+        DETAILED ADVICE STRUCTURE:
+        - Section 1 (Insight): Professional breakdown of current habits based on the data.
+        - Section 2 (Concern): Identify the biggest financial risks.
+        - Section 3 (Actions): List 3-5 practical, specific steps for the Indian context (INR).
+        - Section 4 (Philosophy): Connect advice to {selected_guru}'s core idea: "{principle_core_idea}".
+          {principle_guidance}
+        - Section 5 (Motivation): Encouraging note with a standard educational disclaimer.
+        
+        CONSTRAINTS:
+        - Use Indian financial context (INR, UPI, etc.).
+        - NO specific stock/investment tips or buy/sell calls.
+        - Tone must be motivational but educational.
+        """
+    ).format(
+        spending_summary=spending_summary,
+        top_categories=", ".join(top_categories[:3]) if top_categories else "None",
+        savings_rate=savings_rate,
+        selected_guru=selected_guru,
+        principle_core_idea=principle_core_idea,
+        principle_guidance=principle_guidance,
+        recent_tx_display=recent_tx_display
+    )
+    
+    # 4. Create Agent with User-Bound Tools
+    tools = create_tools(user_id)
+    advisor_agent = create_agent(
+        model=llm,
+        tools=tools,
+        system_prompt=system_prompt
+    )
+    
+    # 5. Invoke Agent
+    response = advisor_agent.invoke({"messages": [("user", user_input)]})
+    last_message = response["messages"][-1].content
+    
+    # 6. Extract text
+    if isinstance(last_message, list):
+        full_text = "".join([item.get("text", "") for item in last_message if isinstance(item, dict)])
+    else:
+        full_text = str(last_message)
+
+    # 7. Try to convert JSON-style answers into a simple friendly message
+    friendly_text = full_text.strip()
+    try:
+        parsed = json.loads(friendly_text)
+        if isinstance(parsed, dict):
+            spending_insight = parsed.get("spending_insight")
+            financial_concern = parsed.get("financial_concern")
+            recommended_actions = parsed.get("recommended_actions") or []
+            principle_guidance = parsed.get("principle_guidance")
+            motivation_and_disclaimer = parsed.get("motivation_and_disclaimer")
+
+            parts = []
+            if spending_insight:
+                parts.append(spending_insight)
+            if financial_concern:
+                parts.append(f"Main concern: {financial_concern}")
+            if recommended_actions:
+                bullet_list = "\n".join(f"- {item}" for item in recommended_actions)
+                parts.append(f"Recommended actions:\n{bullet_list}")
+            if principle_guidance:
+                parts.append(principle_guidance)
+            if motivation_and_disclaimer:
+                parts.append(motivation_and_disclaimer)
+
+            if parts:
+                friendly_text = "\n\n".join(parts).strip()
+    except Exception:
+        pass
+
+    # 8. DEBUG: Print current metrics to terminal
+    print(f"\n--- Current Session Context (User: {user_id}) ---")
+    print(f"Summary: {spending_summary}")
+    print(f"Guru: {selected_guru}")
+    print(f"-------------------------------\n")
+
+    return friendly_text
+</file>
+
+<file path="backend/tools/analytics.py">
+import pandas as pd
+from typing import List, Dict, Union
+import json
+import os
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# --- Import Data Processing Utilities ---
+# Fix Import
+try:
+    from supabase_db import get_user_transactions
+    from data_processor import load_budget_limits, load_and_clean_data
+except ImportError:
+    from backend.tools.supabase_db import get_user_transactions
+    from backend.tools.data_processor import load_budget_limits, load_and_clean_data
+
+#---------Configuration---------#
+# Fix Paths (tools -> backend -> Project Root)
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(TOOLS_DIR))
+
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+OUTPUT_DIR = os.path.join(DATA_DIR, 'reports')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+CHART_PATH_BAR = os.path.join(OUTPUT_DIR, 'total_spending_by_category_bar_chart.png')
+CHART_PATH_LINE = os.path.join(OUTPUT_DIR, 'monthly_spending_trend_line_chart.png')
+
+
+# ==================================================================
+# A. DATA LOADING FUNCTIONS
+# ==================================================================
+
+def load_and_clean_data_from_supabase(user_id: str = None) -> pd.DataFrame:
+    """
+    Load transaction data from Supabase and convert to DataFrame format
+    compatible with existing analytics functions.
+    Wrapper for data_processor.load_and_clean_data.
+    """
+    return load_and_clean_data(user_id)
+
+
+# ==================================================================
+# B. CORE ANALYTICS FUNCTIONS (unchanged)
+# ==================================================================
+
+def get_spending_by_category(df: pd.DataFrame) -> List[Dict[str, Union[str, int]]]:
+    if df.empty:
+        return []
+    category_spending = df.groupby('category')['amount'].sum().sort_values(ascending=False).reset_index()
+    category_spending.columns = ['Category', 'Total_Spent_INR']
+    return category_spending.to_dict('records')
+
+
+def get_monthly_spending_trend(df: pd.DataFrame) -> List[Dict[str, Union[str, int]]]:
+    if df.empty:
+        return []
+    # Ensure datetime is index
+    df = df.copy()
+    df.set_index('datetime', inplace=True)
+    monthly_spending = df['amount'].resample('ME').sum().reset_index()
+    monthly_spending.rename(columns={'datetime': 'Month_Year', 'amount': 'Total_Spent_INR'}, inplace=True)
+    monthly_spending['Month_Year'] = monthly_spending['Month_Year'].dt.strftime('%Y-%m')
+    return monthly_spending.to_dict('records')
+
+
+def get_top_n_merchants(df: pd.DataFrame, n: int = 5) -> List[Dict[str, Union[str, int]]]:
+    if df.empty:
+        return []
+    merchant_spending = df.groupby('description')['amount'].sum().sort_values(ascending=False).head(n).reset_index()
+    merchant_spending.columns = ['Merchant', 'Total_Spent_INR']
+    return merchant_spending.to_dict('records')
+
+
+# ==================================================================
+# B. BUDGETING & RECOMMENDATION TOOLS
+# ==================================================================
+
+def calculate_budget_adherence(df: pd.DataFrame) -> List[Dict[str, Union[str, float]]]:
+    if df.empty:
+        return [{'status': 'Data Empty', 'recommendation': 'No transactions available to calculate budget.'}]
+    budget_limits = load_budget_limits()
+    if not budget_limits:
+        return [{'status': 'Budget Missing', 'recommendation': 'Budget limits not defined.'}]
+    spending_summary = df.groupby('category')['amount'].sum().to_dict()
+    results = []
+    for category, budget_amount in budget_limits.items():
+        spent_amount = spending_summary.get(category, 0)
+        remaining = budget_amount - spent_amount
+        status = "On Track" if remaining >= 0 else "OVER BUDGET"
+        recommendation = f"Under budget by INR {remaining:.2f}" if remaining >= 0 else f"Over budget by INR {abs(remaining):.2f}"
+        results.append({
+            'Category': category,
+            'Budgeted_INR': budget_amount,
+            'Spent_INR': spent_amount,
+            'Remaining_INR': remaining,
+            'Status': status,
+            'Recommendation': recommendation
+        })
+    return results
+
+
+# ==================================================================
+# C. VISUALIZATION
+# ==================================================================
+
+def generate_spending_charts(df: pd.DataFrame, user_id: str = "default") -> List[str]:
+    if df.empty:
+        return ['Error: Cannot generate charts, data is empty.']
+    
+    # Define user-specific paths
+    user_bar_path = os.path.join(OUTPUT_DIR, f'{user_id}_total_spending_by_category_bar_chart.png')
+    user_line_path = os.path.join(OUTPUT_DIR, f'{user_id}_monthly_spending_trend_line_chart.png')
+    user_pie_path = os.path.join(OUTPUT_DIR, f'{user_id}_spending_distribution_pie_chart.png')
+    user_merchants_path = os.path.join(OUTPUT_DIR, f'{user_id}_top_merchants_chart.png')
+
+    # --- Category Bar Chart ---
+    category_data = df.groupby('category')['amount'].sum().sort_values(ascending=False)
+    if category_data.empty:
+        return ['Error: No category data available for chart generation.']
+    
+    print(f"Category data:\n{category_data}")
+    
+    plt.figure(figsize=(12, 7))
+    ax = category_data.plot(kind='bar', color='teal', width=0.7, edgecolor='darkblue', linewidth=1.5)
+    
+    # Format y-axis to show currency
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'₹{x:,.0f}'))
+    
+    # Set labels and title
+    plt.xlabel('Expense Category', fontsize=13, fontweight='bold')
+    plt.ylabel('Total Amount (INR)', fontsize=13, fontweight='bold')
+    plt.title('Total Spending by Category', fontsize=16, fontweight='bold', pad=20)
+    
+    # Rotate x-axis labels
+    plt.xticks(rotation=45, ha='right')
+    
+    # Add grid
+    plt.grid(True, alpha=0.3, axis='y', linestyle='--')
+    
+    # Add value labels on top of bars
+    for i, (category, value) in enumerate(category_data.items()):
+        plt.text(i, value, f'₹{value:,.0f}', 
+                ha='center', va='bottom', fontsize=10, fontweight='bold')
+    
+    # Ensure y-axis starts at 0
+    plt.ylim(bottom=0, top=category_data.max() * 1.15)
+    
+    plt.tight_layout()
+    plt.savefig(user_bar_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    print(f"✅ Bar chart saved successfully to {user_bar_path}")
+
+    # --- Monthly Trend Line Chart ---
+    try:
+        # Prepare DataFrame for Line Chart
+        df_line = df.copy()
+        
+        # Ensure datetime column is properly typed
+        if 'datetime' in df_line.columns:
+            df_line['datetime'] = pd.to_datetime(df_line['datetime'])
+
+        if df_line.empty:
+            raise ValueError("No valid datetime data available after filtering")
+        
+        print(f"Total records for line chart: {len(df_line)}")
+        print(f"Date range: {df_line['datetime'].min()} to {df_line['datetime'].max()}")
+        print(f"Year range: {df_line['datetime'].dt.year.min()} to {df_line['datetime'].dt.year.max()}")
+        
+        # Set datetime as index and sort
+        df_line = df_line.set_index('datetime').sort_index()
+        
+        # Resample to monthly data (ME = Month End)
+        monthly_data = df_line['amount'].resample('ME').sum()
+        
+        # Filter out dates that are clearly wrong (before 2000 or after 2100)
+        monthly_data = monthly_data[
+            (monthly_data.index.year >= 2000) & 
+            (monthly_data.index.year <= 2100)
+        ]
+        
+        # Debug: Print info about the data
+        print(f"Monthly data points: {len(monthly_data)}")
+        if len(monthly_data) > 0:
+            print(f"Monthly data:\n{monthly_data}")
+            print(f"Monthly data index:\n{monthly_data.index}")
+            print(f"Year range: {monthly_data.index.year.min()} to {monthly_data.index.year.max()}")
+        
+        # Check if we have data
+        if monthly_data.empty or len(monthly_data) == 0:
+            raise ValueError("No monthly data to plot after resampling and filtering")
+        
+        # Create the figure
+        plt.figure(figsize=(12, 7))
+        
+        # Plot the line chart
+        ax = monthly_data.plot(kind='line', marker='o', linestyle='-', color='purple', 
+                               linewidth=3, markersize=10, figsize=(12, 7))
+        
+        # Format x-axis dates properly
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        
+        # Set locator based on number of months
+        num_months = len(monthly_data)
+        if num_months <= 6:
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
+        elif num_months <= 12:
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+        else:
+            ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        
+        # Rotate x-axis labels for readability
+        plt.xticks(rotation=45, ha='right')
+        
+        # Set labels and title
+        plt.xlabel('Month', fontsize=13, fontweight='bold')
+        plt.ylabel('Total Amount (INR)', fontsize=13, fontweight='bold')
+        plt.title('Monthly Spending Trend', fontsize=16, fontweight='bold', pad=20)
+        
+        # Add grid
+        plt.grid(True, alpha=0.3, linestyle='--')
+        
+        # Format y-axis to show currency
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'₹{x:,.0f}'))
+        
+        # Ensure y-axis starts at 0
+        y_min = monthly_data.min()
+        y_max = monthly_data.max()
+        if y_min > 0:
+            plt.ylim(bottom=0, top=y_max * 1.1)
+        else:
+            plt.ylim(bottom=y_min * 1.1, top=y_max * 1.1)
+        
+        # Add value labels on points
+        for i, (date, value) in enumerate(zip(monthly_data.index, monthly_data.values)):
+            plt.annotate(f'₹{value:,.0f}', 
+                        (date, value),
+                        textcoords="offset points", 
+                        xytext=(0,10), 
+                        ha='center',
+                        fontsize=9,
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7))
+        plt.tight_layout()
+        plt.savefig(user_line_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        print(f"✅ Line chart saved successfully to {user_line_path}")
+        
+    except Exception as e:
+        print(f"Error generating line chart: {e}")
+        # Create a placeholder chart with error message
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, f'Error generating chart:\n{str(e)}', 
+                ha='center', va='center', fontsize=12, 
+                transform=plt.gca().transAxes)
+        plt.xlabel('Month')
+        plt.ylabel('Total Amount (INR)')
+        plt.savefig(user_line_path, dpi=100, bbox_inches='tight')
+        plt.close()
+
+    # NEW: Pie Chart - Spending Distribution
+    if not category_data.empty:
+        try:
+            plt.figure(figsize=(10, 8))
+            colors = plt.cm.Set3.colors
+            wedges, texts, autotexts = plt.pie(category_data.values, labels=category_data.index, autopct='%1.1f%%', 
+                    colors=colors, startangle=90)
+            
+            # Make percentage text darker for better visibility
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontweight('bold')
+                autotext.set_fontsize(10)
+            
+            plt.title('Spending Distribution by Category', fontsize=16, fontweight='bold', pad=20, color='#333333')
+            plt.tight_layout()
+            plt.savefig(user_pie_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+            print(f"✅ Pie chart saved successfully to {user_pie_path}")
+        except Exception as e:
+            print(f"Error generating pie chart: {e}")
+            # Create placeholder for pie chart
+            plt.figure(figsize=(10, 6))
+            plt.text(0.5, 0.5, f'Error generating pie chart:\n{str(e)}', 
+                    ha='center', va='center', fontsize=12, 
+                    transform=plt.gca().transAxes)
+            plt.title('Spending Distribution by Category')
+            plt.tight_layout()
+            plt.savefig(user_pie_path, dpi=100, bbox_inches='tight')
+            plt.close()
+
+    # NEW: Top Merchants Chart
+    try:
+        merchant_data = df.groupby('description')['amount'].sum().sort_values(ascending=False).head(10)
+        if not merchant_data.empty:
+            plt.figure(figsize=(12, 8))
+            merchant_data.plot(kind='barh', color='orange', edgecolor='darkred', linewidth=1.5)
+            plt.title('Top 10 Merchants by Spending', fontsize=16, fontweight='bold', pad=20, color='#333333')
+            plt.xlabel('Total Amount (INR)', fontsize=13, fontweight='bold', color='#333333')
+            
+            # Format x-axis to show currency
+            ax = plt.gca()
+            ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'₹{x:,.0f}'))
+            
+            # Add value labels
+            for i, (merchant, value) in enumerate(merchant_data.items()):
+                plt.text(value, i, f'₹{value:,.0f}', 
+                        ha='left', va='center', fontsize=9, fontweight='bold', color='#333333')
+            
+            plt.tight_layout()
+            plt.savefig(user_merchants_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+            print(f"✅ Merchants chart saved successfully to {user_merchants_path}")
+        else:
+            print("No merchant data available for chart generation")
+    except Exception as e:
+        print(f"Error generating merchants chart: {e}")
+        # Create placeholder for merchants chart
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, f'Error generating merchants chart:\n{str(e)}', 
+                ha='center', va='center', fontsize=12, 
+                transform=plt.gca().transAxes)
+        plt.title('Top 10 Merchants by Spending')
+        plt.tight_layout()
+        plt.savefig(user_merchants_path, dpi=100, bbox_inches='tight')
+        plt.close()
+    
+    return [user_bar_path, user_line_path, user_pie_path, user_merchants_path]
+
+#To redraw charts after data updation
+def refresh_analysis(user_id: str):
+    """Helper for the Agent: Reloads data and recreates all charts."""
+    df = load_and_clean_data(user_id)
+    if not df.empty:
+        generate_spending_charts(df, user_id)
+        print(f"📈 Analytics and Charts Refreshed for user {user_id}!")
+        return True
+    return False
+
+
+# ==================================================================
+# D. MAIN / DEMO
+# ==================================================================
+
+if __name__ == '__main__':
+    print("--- Running Analytics Module Test ---")
+    # user_id = "test_user" # Provide a valid user ID for testing
+    # clean_df = load_and_clean_data(user_id)
+    # if clean_df.empty:
+    #     print("\nTest failed: No clean data to analyze. Check Supabase connection.")
+    # else:
+    #     print(f"\nSuccessfully loaded {len(clean_df)} expense records.")
+
+    #     category_summary = get_spending_by_category(clean_df)
+    #     monthly_summary = get_monthly_spending_trend(clean_df)
+    #     top_merchants = get_top_n_merchants(clean_df, 3)
+
+    #     print("\n--- Category Spending Summary ---")
+    #     print(json.dumps(category_summary[:5], indent=2))
+    #     print("\n--- Top 3 Merchants ---")
+    #     print(json.dumps(top_merchants, indent=2))
+
+    #     budget_results = calculate_budget_adherence(clean_df)
+    #     print("\n--- Budget Adherence ---")
+    #     print(json.dumps(budget_results[:5], indent=2))
+
+    #     chart_paths = generate_spending_charts(clean_df)
+    #     print("\n--- Charts Generated ---")
+    #     print(f"Chart files saved at: {chart_paths}")
+</file>
+
+<file path="backend/tools/data_processor.py">
+import pandas as pd
+import json
+import os
+import datetime
+from typing import Optional
+
+try:
+    from tools.supabase_db import get_user_transactions, save_transaction
+except ImportError:
+    from backend.tools.supabase_db import get_user_transactions, save_transaction
+
+# Paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(BASE_DIR))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+BUDGET_FILE = os.path.join(DATA_DIR, "budget_limit.json")
+
+def load_and_clean_data(user_id: str) -> pd.DataFrame:
+    """
+    Loads transaction data from Supabase, cleans it, ensures correct data types,
+    and returns a DataFrame.
+
+    Args:
+        user_id (str): The user ID to fetch transactions for.
+
+    Returns:
+        pd.DataFrame: A cleaned DataFrame ready for expense analysis.
+    """
+    if not user_id:
+        print("Error: No user_id provided for load_and_clean_data")
+        return pd.DataFrame()
+
+    try:
+        # 1. Load data from Supabase
+        transactions = get_user_transactions(user_id)
+        print(f"DEBUG: Raw transactions from Supabase: {len(transactions) if transactions else 0}")
+        
+        if not transactions:
+            print(f"DEBUG: No transactions returned from get_user_transactions for user {user_id}")
+            return pd.DataFrame()
+            
+        # Convert to DataFrame
+        # Map Supabase fields to DataFrame columns expected by the application
+        # Supabase: date, time, sender, receiver, transaction_id, category, amount, ai_confidence, corrected
+        # DataFrame expects: datetime, description, amount, transaction_type, payment_mode, category
+        
+        data_list = []
+        for tx in transactions:
+            date_str = tx.get('date')
+            time_str = tx.get('time', '00:00')
+            
+            # FIXED: Initialize datetime_str with the original value first
+            datetime_str = date_str 
+            
+            # Handle datetime conversion properly
+            if date_str:
+                try:
+                    from datetime import datetime
+                    # Attempt to convert YYYY-MM-DD to DD-MM-YYYY
+                    datetime_obj = datetime.strptime(date_str, '%Y-%m-%d')
+                    datetime_str = datetime_obj.strftime('%d-%m-%Y')
+                except ValueError:
+                    pass  # usage of datetime_str above ensures it falls back to date_str
+            
+            data_list.append({
+                'datetime': datetime_str,
+                'description': tx.get('receiver', 'Unknown'),
+                'amount': float(tx.get('amount', 0)),
+                'transaction_type': 'Debit', 
+                'payment_mode': 'UPI',
+                'category': tx.get('category', 'Others'),
+                'transaction_id': tx.get('transaction_id')
+            })
+            
+        df = pd.DataFrame(data_list)
+        
+    except Exception as e:
+        print(f"Error loading data from Supabase: {e}")
+        return pd.DataFrame()
+    
+    if df.empty:
+        print(f"DEBUG: DataFrame is empty, returning empty")
+        return df
+
+    # 2. Convert to correct types
+    # Handle datetime conversion properly
+    # 2. Convert to correct types
+    # Handle datetime conversion properly
+    if 'datetime' in df.columns:
+        print("DEBUG: Converting datetime column to datetime objects")
+        # Force conversion to datetime objects. 
+        # dayfirst=True ensures DD-MM-YYYY strings are parsed correctly.
+        df['datetime'] = pd.to_datetime(df['datetime'], dayfirst=True, errors='coerce')
+    else:
+        print("DEBUG: No datetime column found")
+        pass
+    # Ensure amount is a number
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+
+    # 3. Filter for expenses (Debit) and drop rows with errors (NaN values)
+    # Note: We assign 'Debit' to all rows above, so this filter is redundant but keeps structure
+    expenses_df = df[df['transaction_type'] == 'Debit'].copy()
+    
+    # Drop any rows where critical data (datetime, amount, description) failed cleaning
+    expenses_df.dropna(subset=['datetime', 'amount', 'description'], inplace=True)
+    
+    return expenses_df
+
+
+def load_budget_limits(file_path: str = BUDGET_FILE) -> dict:
+    """
+    Loads the user's defined budget limits from a JSON file.
+    """
+    try:
+        with open(file_path, 'r') as f:
+            budget_data = json.load(f)
+        return budget_data
+    except (FileNotFoundError, json.JSONDecodeError):
+        # print(f"Budget file not found or invalid at {file_path}. Using empty budget.")
+        return {}
+
+
+def auto_categorize_ml(description: str) -> str:
+    """Matches descriptions to categories using simple keywords or LLM."""
+    # Simple keyword matching first for speed
+    desc = description.lower()
+    mappings = {
+        'Food': ['zomato', 'swiggy', 'restaurant', 'cafe', 'starbucks', 'blinkit', 'mcdonalds', 'burger', 'pizza', 'food', 'tea', 'coffee'],
+        'Transport': ['uber', 'ola', 'petrol', 'fuel', 'train', 'irctc', 'metro', 'bus', 'cab', 'auto'],
+        'Shopping': ['amazon', 'flipkart', 'myntra', 'mall', 'electronics', 'cloth', 'shoe', 'market'],
+        'Utilities': ['recharge', 'electricity', 'bill', 'jio', 'airtel', 'gas', 'water', 'wifi', 'internet', 'mobile'],
+        'Health': ['medical', 'hospital', 'pharmacy', 'apollo', 'doctor', 'clinic', 'medicine', 'health'],
+        'Education': ['college', 'fees', 'books', 'school', 'course', 'udemy', 'coursera', 'learning'],
+        'Entertainment': ['netflix', 'spotify', 'cinema', 'movie', 'prime', 'hotstar', 'game', 'play']
+    }
+    
+    for category, keywords in mappings.items():
+        if any(keyword in desc for keyword in keywords):
+            return category
+            
+    # Fallback to LLM if available
+    try:
+        # Import inside function to avoid circular import if advisor imports data_processor
+        from tools.advisor import llm
+        from langchain_core.messages import HumanMessage
+        
+        prompt = f"""
+        Categorize this Indian transaction description into EXACTLY one of these categories:
+        [Food, Transport, Shopping, Utilities, Health, Education, Entertainment, Others]
+        
+        Description: {description}
+        Category:"""
+        
+        response = llm.invoke([HumanMessage(content=prompt)])
+        category = response.content.strip()
+        
+        valid_categories = ['Food', 'Transport', 'Shopping', 'Utilities', 'Health', 'Education', 'Entertainment', 'Others']
+        # Clean up category string just in case
+        for vc in valid_categories:
+            if vc.lower() in category.lower():
+                return vc
+                
+        return "Others"
+    except Exception as e:
+        # print(f"ML Categorization failed: {e}")
+        return "Others"
+
+
+# backend/tools/data_processor.py
+
+def append_new_transaction(data: dict, user_id: str) -> bool:
+    if not user_id:
+        print("Error: No user_id provided")
+        return False
+
+    try:
+        # 1. FIX: Ensure date is NEVER "Not found"
+        date_str = data.get('date')
+        if not date_str or date_str == 'Not found' or date_str == 'Unknown' or date_str.strip() == "":
+             # Use current date as fallback so database doesn't crash
+             date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # 2. FIX: Ensure time is valid
+        time_str = data.get('time')
+        if not time_str or time_str == 'Not found' or time_str.strip() == "":
+            time_str = "00:00"
+
+        db_data = {
+            "date": date_str,      # Now guaranteed to be a valid string
+            "time": time_str,
+            "sender": data.get('sender', 'Self'),
+            "receiver": data.get('receiver', 'Unknown'),
+            "amount": float(data.get('amount', 0)),
+            "category": data.get('category', 'Others'),
+            "transaction_id": data.get('transaction_id'),
+            "ai_confidence": float(data.get('ai_confidence', 0.9)),
+            "corrected": data.get('corrected', False)
+        }
+        
+        return save_transaction(user_id, db_data)
+    except Exception as e:
+        print(f"Error: {e}")
+        return False
+</file>
+
+<file path="backend/tools/llm_config.py">
+import os
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+# ⚠️ Best practice: move this to environment variable later
+os.environ["GOOGLE_API_KEY"] = "AIzaSyCKKJzcmdRz9Mo9yKhwra8xxjNybarF41A"
+
+def get_llm():
+    return ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0
+    )
+</file>
+
+<file path="backend/tools/ocr_processor.py">
+import cv2
+import requests
+import re
+import os
+
+from tools.llm_config import get_llm
+
+OCR_SPACE_API_KEY = "K88959113288957"
+llm = get_llm()
+
+# ---------------- OCR WITH PREPROCESSING ----------------
+def ocr_space(image_path):
+    img = cv2.imread(image_path)
+    if img is None:
+        return None
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    binary = cv2.adaptiveThreshold(
+        gray, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 11, 2
+    )
+
+    temp_path = "temp_ocr.jpg"
+    cv2.imwrite(temp_path, binary)
+
+    with open(temp_path, "rb") as f:
+        r = requests.post(
+            "https://api.ocr.space/parse/image",
+            files={"file": f},
+            data={
+                "apikey": OCR_SPACE_API_KEY,
+                "language": "eng",
+                "OCREngine": 2
+            }
+        )
+
+    os.remove(temp_path)
+    result = r.json()
+
+    if result.get("IsErroredOnProcessing"):
+        return None
+
+    return result["ParsedResults"][0]["ParsedText"]
+
+
+# ---------------- STRONG AMOUNT EXTRACTION ----------------
+def extract_amount(text):
+    print(f"DEBUG: Raw OCR Text for Amount Extraction:\n{text}") # Debug log
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    # Priority 1: Currency-anchored amounts (e.g. ₹50,000, Rs 500)
+    currency_candidates = []
+    
+    for line in lines:
+        clean = line.replace("✔", "").replace("●", "").replace("O", "0")
+        
+        # Matches: ₹ 50,000 | Rs. 450.50 | INR 1200 | ₹50000
+        # Added support for 'Amount' or 'Total' with currency
+        m = re.search(r'(?:₹|rs\.?|inr)\s*([\d,]+\.?\d*)', clean, re.I)
+        if m:
+            raw_val = m.group(1).replace(',', '')
+            try:
+                val = float(raw_val)
+                if 1 <= val <= 2000000: 
+                    currency_candidates.append(val)
+            except:
+                pass
+
+    if currency_candidates:
+        return max(currency_candidates)
+
+    # Priority 2: Labelled amounts (e.g. Amount: 340, Paid: 340)
+    labelled_candidates = []
+    for line in lines:
+        clean = line.replace(",", "").strip()
+        # Matches: Amount 340 | Total 340 | Paid 340 | Pay 340
+        m = re.search(r'(?:Amount|Total|Paid|Payable|Bill)\s*[:\-\s]*([\d,]+\.?\d*)', clean, re.I)
+        if m:
+            raw_val = m.group(1).replace(',', '')
+            try:
+                val = float(raw_val)
+                # Avoid dates (2025) or phone numbers
+                if 1 <= val <= 2000000 and val != 2025: 
+                    labelled_candidates.append(val)
+            except:
+                pass
+    
+    if labelled_candidates:
+        return max(labelled_candidates)
+
+    # Priority 3: Standalone numbers (Fallback)
+    standalone_candidates = []
+    
+    for line in lines:
+        clean = line.replace(",", "").strip()
+        # Look for simple integer or float
+        # Relaxed: Allow trailing dot or spaces
+        # Strict start/end to avoid partial matches in text
+        if re.fullmatch(r'\d{1,7}(\.\d+)?\.?', clean):
+            try:
+                val = float(clean.rstrip('.'))
+                if 1 <= val <= 500000: 
+                    # Filter out likely years if they appear alone (e.g. 2024, 2025)
+                    # Unless it looks like a price (has decimals)
+                    if val in [2023, 2024, 2025, 2026] and "." not in clean:
+                         continue
+                    standalone_candidates.append(val)
+            except:
+                pass
+
+    if not standalone_candidates:
+        return "Not found"
+
+    # Correction logic for standalone numbers
+    corrected_candidates = []
+    for val in standalone_candidates:
+        corrected_candidates.append(val)
+        
+        # OCR inflation cases (7950 → 95)
+        if val > 999:
+            s = str(int(val))
+            if len(s) >= 3 and s[0] in '789':
+                try:
+                    collapsed = float(s[1:])
+                    if 1 <= collapsed <= 500000:
+                        corrected_candidates.append(collapsed)
+                except:
+                    pass
+
+    return max(corrected_candidates)
+
+
+# ---------------- DATE & TIME ----------------
+def extract_date_time(text):
+    patterns = [
+        r'(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4}).*?(\d{1,2}:\d{2}\s*[APap][Mm])'
+    ]
+    for p in patterns:
+        m = re.search(p, text)
+        if m:
+            return m.group(1), m.group(2)
+    return "Not found", "Not found"
+
+
+# ---------------- SENDER ----------------
+def extract_sender(text):
+    # Matches "Debited from NAME" or "from NAME" (case-insensitive)
+    # Also handles "Sender : NAME" or "Payer : NAME"
+    patterns = [
+        r'(?:Debited\s+from|from)\s*[:\-]?\s*([A-Z][A-Za-z ]+)',
+        r'(?:Sender|Payer)\s*[:\-]\s*([A-Z][A-Za-z ]+)'
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            return m.group(1).strip()
+    return "Not found"
+
+
+# ---------------- RECEIVER ----------------
+def extract_receiver(text):
+    # Matches "Paid to NAME" or "to NAME"
+    # Also handles "Receiver : NAME" or "Payee : NAME"
+    patterns = [
+        r'(?:Paid\s+to|to)\s+([A-Z][A-Za-z ]+)',
+        r'(?:Receiver|Payee)\s*[:\-]\s*([A-Z][A-Za-z ]+)'
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            return m.group(1).strip()
+    return "Not found"
+
+
+# ---------------- TRANSACTION ID ----------------
+def extract_transaction_id(text):
+    # Matches "UPI transaction ID" or "UPI txn ID", with optional colons/spaces
+    # Also handles "Ref No", "Reference ID", "Txn ID", "Order ID", or just "Transaction ID"
+    patterns = [
+        r'UPI\s*(?:transaction|txn)\s*ID\s*[:\s-]*([0-9A-Za-z]{8,})',
+        r'(?:Ref\s*No|Reference\s*ID|Txn\s*ID|Order\s*ID|Transaction\s*ID)\s*[:\s-]*([0-9A-Za-z]{8,})'
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.I)
+        if m:
+            return m.group(1)
+    return "Not found"
+
+
+# ---------------- CONFIDENCE SCORING ----------------
+def calculate_confidence(value, field_type, raw_text=""):
+    """
+    Calculate confidence score (0-1) for extracted fields.
+    Higher score = more reliable extraction.
+    """
+    if value == "Not found" or value is None:
+        return 0.0
+    
+    if field_type == "amount":
+        # High confidence if amount is in reasonable range and was currency-anchored
+        if isinstance(value, (int, float)):
+            if 1 <= value <= 10000:
+                # Check if it was found with currency symbol (higher confidence)
+                if "₹" in raw_text or "rs" in raw_text.lower() or "inr" in raw_text.lower():
+                    return 0.85 if value <= 5000 else 0.75
+                return 0.65 if value <= 5000 else 0.55
+        return 0.3
+    
+    elif field_type == "receiver":
+        # High confidence if found with "Paid to" pattern
+        if "paid to" in raw_text.lower() or "to " in raw_text.lower():
+            return 0.8
+        return 0.5
+    
+    elif field_type == "sender":
+        # High confidence if found with "Debited from" pattern
+        if "debited from" in raw_text.lower() or "from " in raw_text.lower():
+            return 0.8
+        return 0.5
+    
+    elif field_type == "date":
+        # High confidence if date pattern matched
+        if value != "Not found":
+            return 0.75
+        return 0.2
+    
+    elif field_type == "time":
+        # High confidence if time pattern matched
+        if value != "Not found" and ":" in str(value):
+            return 0.75
+        return 0.2
+    
+    elif field_type == "transaction_id":
+        # High confidence if found with "UPI transaction ID" pattern
+        if "upi transaction id" in raw_text.lower() or "upi txn id" in raw_text.lower():
+            return 0.85
+        return 0.4
+    
+    return 0.5
+
+
+# ---------------- AI CATEGORIZATION ----------------
+def categorize_transaction_ai(receiver, amount, raw_text):
+    """
+    Uses LLM to categorize the transaction based on receiver and context.
+    """
+    try:
+        # Construct a prompt for the LLM
+        prompt = f"""
+        Analyze this UPI transaction receipt text and details to categorize it.
+        
+        Details:
+        - Receiver: {receiver}
+        - Amount: {amount}
+        - Raw Text Context: {raw_text[:200]}...
+        
+        Categories: Food, Travel, Shopping, Bills, Entertainment, Health, Education, Investment, Rent, Groceries, Other.
+        
+        Instructions:
+        1. Identify the merchant/receiver type.
+        2. Assign the most appropriate category from the list.
+        3. If unsure or personal transfer, use "Other".
+        4. Return ONLY the category name. No explanations.
+        """
+        
+        response = llm.invoke(prompt)
+        category = response.content.strip()
+        
+        # Clean up response (remove potential punctuation)
+        category = category.replace(".", "").replace('"', "")
+        
+        valid_categories = ["Food", "Travel", "Shopping", "Bills", "Entertainment", "Health", "Education", "Investment", "Rent", "Groceries", "Other"]
+        
+        if category not in valid_categories:
+            return "Other"
+            
+        return category
+    except Exception as e:
+        print(f"AI Categorization Error: {e}")
+        return "Other"
+
+
+# ---------------- FINAL PARSER WITH CONFIDENCE ----------------
+def parse_transaction(image_path):
+    raw_text = ocr_space(image_path)
+    if not raw_text:
+        return None
+
+    date, time = extract_date_time(raw_text)
+    amount = extract_amount(raw_text)
+    sender = extract_sender(raw_text)
+    receiver = extract_receiver(raw_text)
+    transaction_id = extract_transaction_id(raw_text)
+
+    # Get Category from AI
+    category = categorize_transaction_ai(receiver, amount, raw_text)
+
+    return {
+        "amount": amount,
+        "sender": sender,
+        "receiver": receiver,
+        "date": date,
+        "time": time,
+        "transaction_id": transaction_id,
+        "category": category,
+        "confidence": {
+            "amount": calculate_confidence(amount, "amount", raw_text),
+            "sender": calculate_confidence(sender, "sender", raw_text),
+            "receiver": calculate_confidence(receiver, "receiver", raw_text),
+            "date": calculate_confidence(date, "date", raw_text),
+            "time": calculate_confidence(time, "time", raw_text),
+            "transaction_id": calculate_confidence(transaction_id, "transaction_id", raw_text)
+        }
+    }
+</file>
+
+<file path="backend/tools/statement_processor.py">
+import pdfplumber
+import pandas as pd
+import re
+import pikepdf
+
+def unlock_pdf(pdf_path, password=None):
+    """
+    Attempts to unlock a PDF. 
+    Returns (True, unlocked_path) if successful or (False, "Password Required").
+    """
+    try:
+        # Open with the provided password (only pass password if it's not None)
+        # pikepdf expects either a string or no password parameter at all
+        if password is not None:
+            with pikepdf.open(pdf_path, password=password) as pdf:
+                # Save a temporary decrypted copy for parsing
+                unlocked_path = "temp_unlocked.pdf"
+                pdf.save(unlocked_path)
+                return True, unlocked_path
+        else:
+            # Try to open without password first (for unprotected PDFs)
+            with pikepdf.open(pdf_path) as pdf:
+                unlocked_path = "temp_unlocked.pdf"
+                pdf.save(unlocked_path)
+                return True, unlocked_path
+    except pikepdf.PasswordError:
+        return False, "Password Required"
+    except Exception as e:
+        return False, str(e)
+    
+
+def parse_bank_statement(pdf_path):
+    transactions = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            table = page.extract_table()
+            if table:
+                # Use the first row as columns
+                headers = [str(h).strip().lower() if h else f"col_{i}" for i, h in enumerate(table[0])]
+                
+                # Create DataFrame
+                df_page = pd.DataFrame(table[1:], columns=headers)
+                
+                # FIX: Drop completely empty columns that often cause duplicate index errors
+                df_page = df_page.dropna(axis=1, how='all')
+                
+                # FIX: Handle duplicate column names by appending a suffix
+                cols = pd.Series(df_page.columns)
+                for dup in cols[cols.duplicated()].unique(): 
+                    cols[cols == dup] = [f"{dup}_{i}" if i != 0 else dup for i in range(sum(cols == dup))]
+                df_page.columns = cols
+                
+                transactions.append(df_page)
+    
+    if not transactions:
+        return None
+
+    # Use ignore_index=True to ensure the row index is unique
+    full_df = pd.concat(transactions, ignore_index=True)
+    return full_df
+</file>
+
+<file path="backend/tools/supabase_db.py">
+import os
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Initialize Supabase client
+_supabase_client = None
+
+def get_supabase_client() -> Client:
+    """Get Supabase client instance with caching and error handling"""
+    global _supabase_client
+    if _supabase_client:
+        return _supabase_client
+        
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_KEY")
+    
+    if not supabase_url or not supabase_key:
+        raise ValueError("Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_KEY in .env file.")
+    
+    try:
+        _supabase_client = create_client(supabase_url, supabase_key)
+        return _supabase_client
+    except Exception as e:
+        print(f"CRITICAL ERROR: Failed to initialize Supabase client. Check your SUPABASE_URL and SUPABASE_KEY in .env file.")
+        print(f"Error details: {str(e)}")
+        # Raise a RuntimeError that can be caught by the caller or crash the app with a clear message
+        raise RuntimeError(f"Invalid Supabase Configuration: {str(e)}")
+
+# Database operations
+def save_transaction(user_id: str, transaction_data: dict) -> dict:
+    """Save transaction to Supabase"""
+    supabase = get_supabase_client()
+    
+    # Handle "Not found" values and set defaults
+    date_value = transaction_data.get("date")
+    if not date_value or date_value == "Not found":
+        from datetime import datetime
+        date_value = datetime.now().strftime('%Y-%m-%d')  # PostgreSQL date format
+    else:
+        # Convert DD-MM-YYYY to YYYY-MM-DD for PostgreSQL
+        try:
+            from datetime import datetime
+            date_obj = datetime.strptime(date_value, '%d-%m-%Y')
+            date_value = date_obj.strftime('%Y-%m-%d')
+        except ValueError:
+            # If conversion fails, use current date
+            from datetime import datetime
+            date_value = datetime.now().strftime('%Y-%m-%d')
+    
+    time_value = transaction_data.get("time", "00:00")
+    if time_value == "Not found":
+        time_value = "00:00"
+    
+    receiver_value = transaction_data.get("receiver")
+    if not receiver_value or receiver_value == "Not found":
+        receiver_value = "Unknown"
+    
+    sender_value = transaction_data.get("sender")
+    if not sender_value or sender_value == "Not found":
+        sender_value = "Self"
+    
+    transaction_id_value = transaction_data.get("transaction_id")
+    if not transaction_id_value or transaction_id_value == "Not found":
+        transaction_id_value = None
+    
+    # Prepare data for Supabase
+    try:
+        # Validate amount before converting to float
+        amount_value = transaction_data.get("amount", 0)
+        if amount_value is None or amount_value == "":
+            raise ValueError("Amount cannot be None or empty")
+        
+        # Convert to float and validate range
+        try:
+            import math
+            amount_float = float(amount_value)
+            
+            # Handle NaN and infinite values
+            if math.isnan(amount_float) or math.isinf(amount_float):
+                raise ValueError(f"Amount {amount_float} is NaN or infinite")
+                
+            if not (-1e10 <= amount_float <= 1e10):  # JSON safe range
+                raise ValueError(f"Amount {amount_float} is out of JSON safe range")
+                
+            # Skip zero or negative amounts for expense tracking
+            if amount_float <= 0:
+                raise ValueError(f"Amount {amount_float} must be positive for expense tracking")
+                
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid amount value: {amount_value}")
+        
+        db_data = {
+            "user_id": user_id,
+            "date": date_value,
+            "time": time_value,
+            "sender": sender_value,
+            "receiver": receiver_value,
+            "transaction_id": transaction_id_value,
+            "category": transaction_data.get("category"),
+            "amount": amount_float,
+            "ai_confidence": float(transaction_data.get("ai_confidence", 0.5)),
+            "corrected": transaction_data.get("corrected", False)
+        }
+        
+        result = supabase.table("transactions").insert(db_data).execute()
+        return result.data[0] if result.data else None
+        
+    except ValueError as e:
+        print(f"Validation error in save_transaction: {e}")
+        raise
+    except Exception as e:
+        print(f"Database error in save_transaction: {e}")
+        raise
+
+def get_user_transactions(user_id: str) -> list:
+    """Get all transactions for a user"""
+    print(f"DEBUG: Fetching transactions for user_id: {user_id}")
+    supabase = get_supabase_client()
+    
+    result = supabase.table("transactions").select("*").eq("user_id", user_id).order("date", desc=True).execute()
+    print(f"DEBUG: Query result: {result.data}")
+    
+    if not result.data:
+        print(f"DEBUG: No transactions found for user {user_id}")
+        return []
+    
+    # Convert dates back to DD-MM-YYYY format for frontend
+    transactions = []
+    for tx in result.data:
+        tx_copy = tx.copy()
+        if tx_copy.get("date"):
+            try:
+                from datetime import datetime
+                date_obj = datetime.strptime(tx_copy["date"], '%Y-%m-%d')
+                tx_copy["date"] = date_obj.strftime('%d-%m-%Y')
+            except ValueError:
+                pass  # Keep original if conversion fails
+        transactions.append(tx_copy)
+    
+    return transactions
+
+def delete_transaction(transaction_id: int, user_id: str) -> bool:
+    """Delete a transaction for a user"""
+    supabase = get_supabase_client()
+    
+    result = supabase.table("transactions").delete().eq("id", transaction_id).eq("user_id", user_id).execute()
+    return len(result.data) > 0 if result.data else False
+
+def verify_user_token(token: str) -> dict:
+    """Verify JWT token and get user info"""
+    # For development: bypass network issues with a fallback user
+    if token == "dev-token" or not token:
+        return {"id": "dev-user", "email": "dev@example.com"}
+    
+    supabase = get_supabase_client()
+    
+    try:
+        user = supabase.auth.get_user(token)
+        if user and user.user:
+            return user.user
+        return {"id": "dev-user", "email": "dev@example.com"}
+    except Exception as e:
+        print(f"Token verification error: {e}")
+        # For SSL timeout errors, we might want to be more lenient or retry
+        if "SSL" in str(e) or "timeout" in str(e).lower() or "handshake" in str(e).lower():
+            print("SSL/Timeout error during token verification - this might be a network issue")
+            # For development, you could add a fallback here
+            return {"id": "dev-user", "email": "dev@example.com"}  # Uncomment for testing
+            # Return None to force re-authentication
+            return None
+        return None
+</file>
+
+<file path="backend/tools/tempCodeRunnerFile.py">
+isinstance
+</file>
+
+<file path="check.py">
+import cv2
+import os
+
+def convert_to_grayscale(image_path, output_folder="processed_images"):
+    # 1. Load the color image
+    img = cv2.imread(image_path)
+    
+    if img is None:
+        print("Error: Could not read image.")
+        return
+    
+    # 2. Convert to Grayscale
+    # This reduces 3 color channels (RGB) to 1 (Luminance)
+    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # 3. Create output directory if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        
+    # 4. Save the result locally
+    filename = os.path.basename(image_path)
+    output_path = os.path.join(output_folder, f"gray_{filename}")
+    cv2.imwrite(output_path, gray_img)
+    
+    print(f"✅ Conversion complete! saved to: {output_path}")
+    
+    # 5. Optional: Show the image in a window (press any key to close)
+    cv2.imshow("Grayscale Result", gray_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+# Test it with one of your images
+convert_to_grayscale("googlepay_recipt1.jpeg")
+</file>
+
+<file path="cmds.txt">
+backend: uvicorn main:app --reload --host 0.0.0.0 --port 8000
+frontend: npm run dev
+</file>
+
+<file path="data/budget_limit.json">
+{
+  "Shopping": 40000,
+  "Health": 35000,
+  "Utilities": 30000,
+  "Transport": 25000,
+  "Food": 15000,
+  "Entertainment": 10000,
+  "Education": 12000,
+  "Investment": 50000
+}
+</file>
+
+<file path="data/demo_expense_dataset_100_records_with_payment_modes.csv">
+datetime,description,amount,transaction_type,payment_mode,category
+29-01-2024 00:47,Medical Store,2303.0,Debit,UPI - Google Pay,Health
+05-02-2024 23:06,Train Ticket,4517.0,Debit,UPI - PhonePe,Transport
+18-04-2024 01:01,Spotify Subscription,817.0,Debit,UPI - Google Pay,Entertainment
+09-05-2024 19:01,Train Ticket,4647.0,Debit,UPI - Google Pay,Transport
+15-06-2024 22:34,College Fees,3486.0,Debit,UPI - Google Pay,Education
+30-05-2024 08:51,Internet Bill,103.0,Debit,Cash,Utilities
+10-02-2024 22:27,Salary Credit,42298.0,Credit,UPI - Paytm,Income
+25-02-2024 10:06,Uber Ride,809.0,Debit,Debit Card,Transport
+01-04-2024 11:38,Cafe Coffee Day,2216.0,Debit,Cash,Food
+27-04-2024 17:07,Zomato Restaurant,3150.0,Debit,UPI - PhonePe,Food
+16-03-2024 20:39,Netflix Subscription,3012.0,Debit,Credit Card,Entertainment
+21-01-2024 07:55,Flipkart Order,877.0,Debit,Debit Card,Shopping
+26-04-2024 20:53,Amazon Purchase,3038.0,Debit,UPI - Google Pay,Shopping
+31-03-2024 06:42,Electronics Store,2237.0,Debit,Net Banking,Shopping
+14-06-2024 02:38,Hospital Visit,1451.0,Debit,Credit Card,Health
+03-03-2024 05:29,Books Purchase,3158.0,Debit,UPI - Paytm,Education
+15-01-2024 07:52,Online Course Fee,312.0,Debit,Cash,Education
+12-04-2024 08:04,Myntra Clothing,1778.0,Debit,Credit Card,Shopping
+21-03-2024 06:41,College Fees,4139.0,Debit,Debit Card,Education
+27-04-2024 04:16,Medical Store,1193.0,Debit,UPI - Google Pay,Health
+23-05-2024 17:16,Books Purchase,4838.0,Debit,Debit Card,Education
+12-04-2024 11:14,Spotify Subscription,1183.0,Debit,Credit Card,Entertainment
+24-01-2024 01:55,Gas Bill,948.0,Debit,UPI - Google Pay,Utilities
+10-02-2024 21:27,Medical Store,4935.0,Debit,UPI - PhonePe,Health
+07-04-2024 19:29,Electricity Bill,4384.0,Debit,UPI - Paytm,Utilities
+03-01-2024 21:46,Netflix Subscription,988.0,Debit,Net Banking,Entertainment
+09-03-2024 20:21,Netflix Subscription,963.0,Debit,UPI - Paytm,Entertainment
+10-02-2024 14:00,Mobile Recharge,2207.0,Debit,Credit Card,Utilities
+15-02-2024 16:58,Online Course Fee,921.0,Debit,Cash,Education
+17-03-2024 20:32,Medical Store,1679.0,Debit,UPI - Google Pay,Health
+11-02-2024 17:49,Electronics Store,4394.0,Debit,UPI - PhonePe,Shopping
+23-03-2024 15:01,Gym Membership,966.0,Debit,UPI - Paytm,Health
+19-03-2024 07:03,Freelance Payment,35785.0,Credit,Credit Card,Income
+22-01-2024 23:31,Local Restaurant,616.0,Debit,Cash,Food
+02-02-2024 04:42,Netflix Subscription,3943.0,Debit,Credit Card,Entertainment
+08-03-2024 16:55,Ola Cab,3516.0,Debit,UPI - Google Pay,Transport
+25-06-2024 06:45,Netflix Subscription,2603.0,Debit,Debit Card,Entertainment
+04-03-2024 07:04,Cafe Coffee Day,2819.0,Debit,UPI - PhonePe,Food
+21-05-2024 07:37,Spotify Subscription,1854.0,Debit,UPI - PhonePe,Entertainment
+10-06-2024 01:14,Local Restaurant,602.0,Debit,UPI - PhonePe,Food
+25-03-2024 02:32,Scholarship Credit,35597.0,Credit,UPI - Paytm,Income
+04-05-2024 06:34,Hospital Visit,1133.0,Debit,Net Banking,Health
+27-05-2024 15:15,Spotify Subscription,3924.0,Debit,Cash,Entertainment
+18-02-2024 03:06,Mobile Recharge,3581.0,Debit,UPI - Paytm,Utilities
+15-04-2024 14:55,Mobile Recharge,493.0,Debit,Net Banking,Utilities
+14-06-2024 03:03,Medical Store,3348.0,Debit,Net Banking,Health
+28-01-2024 07:12,Myntra Clothing,1608.0,Debit,Credit Card,Shopping
+05-02-2024 13:11,Internet Bill,2331.0,Debit,Debit Card,Utilities
+20-01-2024 14:51,Train Ticket,4558.0,Debit,UPI - PhonePe,Transport
+15-06-2024 17:53,Zomato Restaurant,170.0,Debit,UPI - PhonePe,Food
+01-03-2024 05:26,Online Course Fee,4028.0,Debit,Debit Card,Education
+12-04-2024 01:10,City Bus Ticket,3154.0,Debit,UPI - PhonePe,Transport
+08-03-2024 14:18,Electricity Bill,3515.0,Debit,Net Banking,Utilities
+22-05-2024 21:45,Books Purchase,4036.0,Debit,UPI - Google Pay,Education
+16-03-2024 06:03,City Bus Ticket,4794.0,Debit,Net Banking,Transport
+16-01-2024 23:20,Netflix Subscription,518.0,Debit,UPI - PhonePe,Entertainment
+02-05-2024 16:58,Spotify Subscription,4400.0,Debit,UPI - Google Pay,Entertainment
+10-05-2024 02:54,Zomato Restaurant,1572.0,Debit,UPI - PhonePe,Food
+18-01-2024 21:55,Gym Membership,1976.0,Debit,Debit Card,Health
+25-05-2024 07:37,Cafe Coffee Day,4920.0,Debit,UPI - PhonePe,Food
+21-01-2024 13:42,Gym Membership,4831.0,Debit,Credit Card,Health
+21-03-2024 08:13,Movie Tickets,2623.0,Debit,UPI - Google Pay,Entertainment
+11-04-2024 04:42,Amazon Purchase,2507.0,Debit,Debit Card,Shopping
+19-01-2024 00:29,Myntra Clothing,4662.0,Debit,UPI - PhonePe,Shopping
+17-05-2024 06:32,Local Restaurant,2222.0,Debit,UPI - Google Pay,Food
+18-01-2024 07:23,Electronics Store,2384.0,Debit,UPI - Google Pay,Shopping
+19-05-2024 22:19,Internet Bill,4383.0,Debit,UPI - PhonePe,Utilities
+21-05-2024 09:59,Hospital Visit,898.0,Debit,UPI - Google Pay,Health
+30-01-2024 03:47,Amazon Purchase,4582.0,Debit,UPI - Google Pay,Shopping
+13-03-2024 19:13,Amazon Purchase,2858.0,Debit,UPI - Google Pay,Shopping
+11-06-2024 08:32,Hospital Visit,4052.0,Debit,UPI - Paytm,Health
+14-01-2024 02:40,Scholarship Credit,47759.0,Credit,Cash,Income
+12-01-2024 00:21,Amazon Purchase,1121.0,Debit,Net Banking,Shopping
+11-02-2024 23:28,Amazon Purchase,4569.0,Debit,Net Banking,Shopping
+23-05-2024 00:07,Mobile Recharge,666.0,Debit,Net Banking,Utilities
+19-05-2024 01:53,Uber Ride,3074.0,Debit,Credit Card,Transport
+07-02-2024 13:08,Netflix Subscription,392.0,Debit,UPI - Paytm,Entertainment
+11-01-2024 11:13,Electronics Store,2094.0,Debit,Net Banking,Shopping
+31-03-2024 17:56,Cafe Coffee Day,3379.0,Debit,Credit Card,Food
+09-02-2024 07:55,Books Purchase,1381.0,Debit,Cash,Education
+15-02-2024 13:01,Salary Credit,31754.0,Credit,Net Banking,Income
+15-04-2024 21:55,Myntra Clothing,2082.0,Debit,UPI - Paytm,Shopping
+26-02-2024 06:52,Gas Bill,3820.0,Debit,UPI - Paytm,Utilities
+28-02-2024 07:01,Flipkart Order,1632.0,Debit,Debit Card,Shopping
+12-03-2024 02:49,Myntra Clothing,2336.0,Debit,UPI - Paytm,Shopping
+10-05-2024 12:43,Medical Store,4442.0,Debit,UPI - Paytm,Health
+30-01-2024 08:11,Swiggy Order,4806.0,Debit,UPI - Paytm,Food
+28-01-2024 19:27,Zomato Restaurant,2881.0,Debit,Net Banking,Food
+21-03-2024 13:38,Salary Credit,53516.0,Credit,UPI - PhonePe,Income
+27-05-2024 06:16,Electricity Bill,413.0,Debit,Net Banking,Utilities
+01-01-2024 16:59,Mobile Recharge,4460.0,Debit,Net Banking,Utilities
+20-06-2024 06:23,Books Purchase,3583.0,Debit,UPI - PhonePe,Education
+25-03-2024 19:20,Hospital Visit,1070.0,Debit,Net Banking,Health
+09-05-2024 09:42,Flipkart Order,3395.0,Debit,UPI - Paytm,Shopping
+19-06-2024 12:43,Mobile Recharge,1475.0,Debit,Credit Card,Utilities
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+Not found Not found,Amazon Offer Sale,1999.0,Debit,UPI,Shopping
+Not found Not found,Amazon Offer Sale,1999.0,Debit,UPI,Shopping
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+Not found Not found,Amazon Offer Sale,1999.0,Debit,UPI,Shopping
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+Not found Not found,Amazon Offer Sale,1999.0,Debit,UPI,Shopping
+5 Dec 2025 12:45 PM,PRINCIPAL,200.0,Debit,UPI,Education
+31 Jul 2025 07:40 pm,DL DATTA SUDHAKAR LONDHE,100.0,Debit,UPI,Others
+19 Dec 2025 8:40 pm,Dasi Shrikant Shrinivas,20.0,Debit,UPI,Others
+31 Jul 2025 07:40 pm,DL DATTA SUDHAKAR LONDHE,100.0,Debit,UPI,Others
+3 Dec 2025 11:29 PM,HARSH BADGANCHI,160.0,Debit,UPI,Others
+31 Jul 2025 07:40 pm,DL DATTA SUDHAKAR LONDHE,100.0,Debit,UPI,Others
+3 Dec 2025 11:29 PM,HARSH BADGANCHI,160.0,Debit,UPI,Others
+Not found Not found,Amazon Offer Sale,1999.0,Debit,UPI,Shopping
+5 Dec 2025 12:45 PM,PRINCIPAL,2000.0,Debit,UPI,Education
+Not found Not found,Amazon Offer Sell,1999.0,Debit,UPI,Shopping
+17 Dec 2025 11:39 AM,Not found,15.0,Debit,UPI,Others
+2 Dec 2025 2:55 PM,VADAPAV JUNCTION,950.0,Debit,UPI,Food
+17 Dec 2025 11:39 AM,Not found,7586.0,Debit,UPI,Others
+Not found Not found,Not found,7586.46,Debit,UPI,Others
+Not found Not found,VADAPAV JUNCTION,7.21,Debit,UPI,Food
+Not found Not found,Not found,1999.0,Debit,UPI,Others
+Not found Not found,Not found,7586.46,Debit,UPI,Others
+Not found Not found,VADAPAV JUNCTION,7.21,Debit,UPI,Food
+Not found Not found,Not found,586.46,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+21-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+23-11-25 00:00,Unknown,7200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+21-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+23-11-25 00:00,Unknown,7200.0,Debit,UPI,Others
+29-11-25 00:00,Unknown,2000.0,Debit,UPI,Others
+30-11-25 00:00,Unknown,596.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+21-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+23-11-25 00:00,Unknown,7200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+21-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+23-11-25 00:00,Unknown,7200.0,Debit,UPI,Others
+29-11-25 00:00,Unknown,2000.0,Debit,UPI,Others
+30-11-25 00:00,Unknown,596.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+21-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+23-11-25 00:00,Unknown,7200.0,Debit,UPI,Others
+29-11-25 00:00,Unknown,2000.0,Debit,UPI,Others
+30-11-25 00:00,Unknown,596.0,Debit,UPI,Others
+13 Dec 2025 11:29PM,HARSH BADGANCHI,1204.0,Debit,UPI,Others
+31 Jul 2025 07:40 pm,DATTA SUDHAKAR LONDHE,100.0,Debit,UPI,Others
+Not found Not found,Not found,586.46,Debit,UPI,Others
+Not found Not found,Not found,586.46,Debit,UPI,Others
+Not found Not found,VADAPAV JUNCTION,950.0,Debit,UPI,Food
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+05-11-25 00:00,Unknown,200.0,Debit,UPI,Others
+15-11-25 00:00,Unknown,500.0,Debit,UPI,Others
+21-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+23-11-25 00:00,Unknown,7200.0,Debit,UPI,Others
+29-11-25 00:00,Unknown,2000.0,Debit,UPI,Others
+30-11-25 00:00,Unknown,596.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1200.0,Debit,UPI,Others
+02-11-25 00:00,Unknown,1100.0,Debit,UPI,Others
+28-12-2025 00:00,VADAPAV JUNCTION,95.0,Debit,UPI,Food
+</file>
+
+<file path="data/guru_data.py">
+# ==================================================================
+# GURU KNOWLEDGE BASE
+# ==================================================================
+
+# Merged and refined principles for higher quality advice
+FINANCIAL_GURUS = {
+    "Warren Buffett": {
+        "core_idea": "Financial discipline, Value, and Patience",
+        "guidance": (
+            "Do not save what is left after spending; spend what is left after saving. "
+            "Prioritize long-term financial stability and avoid unnecessary 'wants'."
+        )
+    },
+    "Ramit Sethi": {
+        "core_idea": "Conscious Spending and Rich Life Philosophy",
+        "guidance": (
+            "Spend extravagantly on the things you love, but cut costs mercilessly on "
+            "the things you don't. Focus on 'Big Wins' rather than just small change."
+        )
+    },
+    "Robert Kiyosaki": {
+        "core_idea": "The Asset vs. Liability Distinction",
+        "guidance": (
+            "Focus on acquiring income-generating assets and reducing bad debt (liabilities). "
+            "Stop spending money on things that drain your cash flow."
+        )
+    }
+}
+</file>
+
+<file path="frontend/.gitignore">
+### 2. `.gitignore`
+This file tells Git which files to ignore. **Crucially, it includes your `.env` file** to protect your Supabase and API keys.
+
+```text
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Environment Variables (CRITICAL)
+.env*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+
+# Local Data/Temp files
+temp/
+data/reports/*.png
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+</file>
+
+<file path="frontend/app/actions.js">
+// 'use server'
+// 
+// // This file is currently disabled because it depends on modules that are missing in the frontend environment.
+// // import db from '@/lib/db';
+// // import { ocrSpace, parseTransaction, categorizeTransaction } from '@/lib/utils';
+// // import { revalidatePath } from 'next/cache';
+// 
+// // export async function uploadImage(formData) {
+// //   const file = formData.get('file');
+// //   if (!file) return { success: false, message: "No file uploaded" };
+// // 
+// //   const arrayBuffer = await file.arrayBuffer();
+// //   const buffer = Buffer.from(arrayBuffer);
+// // 
+// //   const rawText = await ocrSpace(buffer);
+// //   if (!rawText) return { success: false, message: "OCR Failed" };
+// // 
+// //   let tx = parseTransaction(rawText);
+// //   tx.category = categorizeTransaction(tx);
+// // 
+// //   // === UPDATED SQL TO STORE ALL FIELDS ===
+// //   const stmt = db.prepare(`
+// //     INSERT INTO expenses (sender, receiver, amount, date, time, transaction_id, category)
+// //     VALUES (?, ?, ?, ?, ?, ?, ?)
+// //   `);
+// //   
+// //   stmt.run(tx.sender, tx.receiver, tx.amount, tx.date, tx.time, tx.transaction_id, tx.category);
+// // 
+// //   revalidatePath('/');
+// //   return { success: true, data: tx };
+// // }
+// 
+// // export async function deleteTransaction(id) {
+// //   const stmt = db.prepare('DELETE FROM expenses WHERE id = ?');
+// //   stmt.run(id);
+// //   revalidatePath('/'); // Refreshes the dashboard to show the item is gone
+// // }
+</file>
+
+<file path="frontend/app/auth/callback/page.jsx">
+'use client'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '../../../lib/supabase/client'
+
+export default function AuthCallback() {
+  const router = useRouter()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const handleAuthCallback = async () => {
+      try {
+        // Handle the OAuth callback
+        const { data, error } = await supabase.auth.getSession()
+        
+        if (error) throw error
+        
+        if (data.session) {
+          // Store token for API calls
+          localStorage.setItem('sb-token', data.session.access_token)
+          console.log('✅ Google OAuth successful!')
+          router.push('/')
+        } else {
+          // Try to get session from URL hash (OAuth callback)
+          const { data: authData, error: authError } = await supabase.auth.getUser()
+          
+          if (authError) throw authError
+          
+          if (authData.user) {
+            // Get the session
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+            
+            if (sessionError) throw sessionError
+            
+            if (sessionData.session) {
+              localStorage.setItem('sb-token', sessionData.session.access_token)
+              console.log('✅ Google OAuth successful!')
+              router.push('/')
+            }
+          } else {
+            console.log('❌ No session found')
+            router.push('/login')
+          }
+        }
+      } catch (error) {
+        console.error('Auth callback error:', error)
+        router.push('/login')
+      }
+    }
+
+    handleAuthCallback()
+  }, [router, supabase])
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Completing Google authentication...</p>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="frontend/app/components/AiAssistant.jsx">
+'use client'
+import { useState, useRef, useEffect } from 'react';
+
+export function AiAssistant() {
+  const [query, setQuery] = useState("");
+  const [messages, setMessages] = useState([
+    { role: 'ai', text: 'Hi! Ask me about your spending. (e.g., "How much did I spend on food?")' }
+  ]);
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSend() {
+    if (!query.trim()) return;
+
+    const newMessages = [...messages, { role: 'user', text: query }];
+    setMessages(newMessages);
+    setQuery("");
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('sb-token');
+      if (!token) {
+        setMessages([...newMessages, { role: 'ai', text: "Please login to use the chat assistant." }]);
+        return;
+      }
+      
+      const res = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ message: query }),
+      });
+      
+      const data = await res.json();
+      setMessages([...newMessages, { role: 'ai', text: data.response }]);
+    } catch (err) {
+      setMessages([...newMessages, { role: 'ai', text: "Error connecting to server." }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
+      <div className="bg-blue-600 text-white p-4 font-bold flex justify-between items-center rounded-t-xl">
+        <span>Finance Assistant</span>
+        <span className="text-xs bg-blue-500 px-2 py-1 rounded">FinsAI</span>
+      </div>
+
+      <div className="flex-1 p-4 overflow-y-auto bg-gray-50 space-y-3">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${
+              m.role === 'user' 
+                ? 'bg-blue-600 text-white rounded-br-none' 
+                : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm'
+            }`}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {loading && <div className="text-gray-400 text-xs italic ml-2">Thinking...</div>}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="p-3 bg-white border-t flex gap-2 rounded-b-xl">
+        <input 
+          className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Ask about your expenses..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+        />
+        <button 
+          onClick={handleSend}
+          disabled={loading}
+          className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50"
+        >
+          ➤
+        </button>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/app/components/AuthComponent.jsx">
+'use client'
+import { useState } from 'react'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useRouter } from 'next/navigation'
+
+export function AuthComponent() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [isSignUp, setIsSignUp] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  
+  const supabase = createClientComponentClient()
+  const router = useRouter()
+
+  const handleAuth = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
+    try {
+      if (isSignUp) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`
+          }
+        })
+        if (error) throw error
+        setError('Check your email for confirmation link!')
+      } else {
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        })
+        if (error) throw error
+        
+        // Store token and redirect
+        if (data.session) {
+          localStorage.setItem('sb-token', data.session.access_token)
+          router.push('/')
+        }
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8">
+        <div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            {isSignUp ? 'Create Account' : 'Sign In'}
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Finance AI Agent - Track your expenses
+          </p>
+        </div>
+        
+        <form className="mt-8 space-y-6" onSubmit={handleAuth}>
+          <div className="rounded-md shadow-sm -space-y-px">
+            <div>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="text-red-600 text-sm text-center">{error}</div>
+          )}
+
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
+            </button>
+          </div>
+
+          <div className="text-center">
+            <button
+              type="button"
+              className="text-blue-600 hover:text-blue-800 text-sm"
+              onClick={() => setIsSignUp(!isSignUp)}
+            >
+              {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+</file>
+
+<file path="frontend/app/components/BackendCharts.jsx">
+'use client'
+import { useState, useEffect } from 'react';
+
+export function BackendCharts() {
+  const [barChartUrl, setBarChartUrl] = useState(null);
+  const [lineChartUrl, setLineChartUrl] = useState(null);
+  const [pieChartUrl, setPieChartUrl] = useState(null);
+  const [merchantsChartUrl, setMerchantsChartUrl] = useState(null);
+  const [barChartError, setBarChartError] = useState(false);
+  const [lineChartError, setLineChartError] = useState(false);
+  const [pieChartError, setPieChartError] = useState(false);
+  const [merchantsChartError, setMerchantsChartError] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+  const [modalImage, setModalImage] = useState(null);
+  const [modalTitle, setModalTitle] = useState('');
+
+  const barChartEndpoint = "http://localhost:8000/reports/bar";
+  const lineChartEndpoint = "http://localhost:8000/reports/line";
+  const pieChartEndpoint = "http://localhost:8000/reports/pie";
+  const merchantsChartEndpoint = "http://localhost:8000/reports/merchants";
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  const fetchChart = async (endpoint, setUrl, setError) => {
+    try {
+      const token = localStorage.getItem('sb-token');
+      if (!token) return;
+      
+      const res = await fetch(endpoint, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        setUrl(url);
+        setError(false);
+      } else {
+        setError(true);
+      }
+    } catch (e) {
+      console.error(`Error fetching ${endpoint} chart:`, e);
+      setError(true);
+    }
+  };
+
+  useEffect(() => {
+    const fetchCharts = () => {
+      if (isClient) {
+        fetchChart(barChartEndpoint, setBarChartUrl, setBarChartError);
+        fetchChart(lineChartEndpoint, setLineChartUrl, setLineChartError);
+        fetchChart(pieChartEndpoint, setPieChartUrl, setPieChartError);
+        fetchChart(merchantsChartEndpoint, setMerchantsChartUrl, setMerchantsChartError);
+      }
+    };
+
+    fetchCharts();
+
+    // Cleanup object URLs to avoid memory leaks
+    return () => {
+      if (barChartUrl) URL.revokeObjectURL(barChartUrl);
+      if (lineChartUrl) URL.revokeObjectURL(lineChartUrl);
+      if (pieChartUrl) URL.revokeObjectURL(pieChartUrl);
+      if (merchantsChartUrl) URL.revokeObjectURL(merchantsChartUrl);
+    };
+  }, [isClient]);
+
+  return (
+    <>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">📊 Financial Analytics</h2>
+        <button 
+          onClick={() => {
+            const token = localStorage.getItem('sb-token');
+            if (token) {
+              fetch('http://localhost:8000/reports/refresh', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+              }).then(() => {
+                // Refresh all charts after regeneration
+                setBarChartUrl(null);
+                setLineChartUrl(null);
+                setPieChartUrl(null);
+                setMerchantsChartUrl(null);
+                setBarChartError(false);
+                setLineChartError(false);
+                setPieChartError(false);
+                setMerchantsChartError(false);
+                setTimeout(() => {
+                  fetchChart(barChartEndpoint, setBarChartUrl, setBarChartError);
+                  fetchChart(lineChartEndpoint, setLineChartUrl, setLineChartError);
+                  fetchChart(pieChartEndpoint, setPieChartUrl, setPieChartError);
+                  fetchChart(merchantsChartEndpoint, setMerchantsChartUrl, setMerchantsChartError);
+                }, 2000);
+              }).catch(err => console.error('Error refreshing charts:', err));
+            }
+          }}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium shadow-md"
+        >
+          🔄 Refresh All Charts
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">📊 Total Spending by Category</h2>
+          <div className="w-full h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+            {!barChartError && barChartUrl ? (
+              <img 
+                src={barChartUrl}
+                alt="Spending by Category Chart"
+                className="max-w-full max-h-full object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                onError={() => setBarChartError(true)}
+                onClick={() => {
+                  setModalImage(barChartUrl);
+                  setModalTitle('Total Spending by Category');
+                }}
+              />
+            ) : (
+              <p className="text-gray-500 text-sm">Chart will appear after processing transactions</p>
+            )}
+          </div>
+        </section>
+        
+        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">📈 Monthly Spending Trend</h2>
+          <div className="w-full h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+            {!lineChartError && lineChartUrl ? (
+              <img 
+                src={lineChartUrl}
+                alt="Monthly Spending Trend Chart"
+                className="max-w-full max-h-full object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                onError={() => setLineChartError(true)}
+                onClick={() => {
+                  setModalImage(lineChartUrl);
+                  setModalTitle('Monthly Spending Trend');
+                }}
+              />
+            ) : (
+              <p className="text-gray-500 text-sm">Chart will appear after processing transactions</p>
+            )}
+          </div>
+        </section>
+        
+        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">🥧 Spending Distribution by Category</h2>
+          <div className="w-full h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+            {!pieChartError && pieChartUrl ? (
+              <img 
+                src={pieChartUrl}
+                alt="Spending Distribution Chart"
+                className="max-w-full max-h-full object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                onError={() => setPieChartError(true)}
+                onClick={() => {
+                  setModalImage(pieChartUrl);
+                  setModalTitle('Spending Distribution by Category');
+                }}
+              />
+            ) : (
+              <p className="text-gray-500 text-sm">Chart will appear after processing transactions</p>
+            )}
+          </div>
+        </section>
+        
+        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">🏪 Top 10 Merchants by Spending</h2>
+          <div className="w-full h-64 flex items-center justify-center bg-gray-50 rounded-lg">
+            {!merchantsChartError && merchantsChartUrl ? (
+              <img 
+                src={merchantsChartUrl}
+                alt="Top Merchants Chart"
+                className="max-w-full max-h-full object-contain cursor-pointer hover:opacity-80 transition-opacity"
+                onError={() => setMerchantsChartError(true)}
+                onClick={() => {
+                  setModalImage(merchantsChartUrl);
+                  setModalTitle('Top 10 Merchants by Spending');
+                }}
+              />
+            ) : (
+              <p className="text-gray-500 text-sm">Chart will appear after processing transactions</p>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* Modal for enlarged chart view */}
+      {modalImage && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setModalImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-full bg-white rounded-lg shadow-xl">
+            <button
+              onClick={() => setModalImage(null)}
+              className="absolute top-4 right-4 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors z-10"
+            >
+              ✕
+            </button>
+            <div className="p-6">
+              <h3 className="text-lg font-semibold mb-4 text-gray-800">{modalTitle}</h3>
+              <img 
+                src={modalImage}
+                alt={modalTitle}
+                className="max-w-full max-h-[70vh] object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+</file>
+
+<file path="frontend/app/components/DeleteButton.js">
+'use client'
+import { useRouter } from 'next/navigation';
+import { deleteTransactionAPI } from '../../lib/api.js';
+import { createClient } from '../../lib/supabase/client.js';
+
+export function DeleteButton({ id }) {
+  const router = useRouter();
+  const supabase = createClient();
+
+  async function handleDelete() {
+    if(!confirm("Are you sure?")) return;
+    
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+            alert("Please login first");
+            return;
+        }
+        
+        await deleteTransactionAPI(id, session.access_token);
+        router.refresh(); // Refresh the list
+    } catch(e) {
+        console.error(e);
+        alert("Failed to delete");
+    }
+  }
+
+  return (
+    <button onClick={handleDelete} className="text-red-500 hover:text-red-700">
+      🗑️
+    </button>
+  )
+}
+</file>
+
+<file path="frontend/app/components/ExpenseChart.js">
+'use client'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+
+export function ExpenseChart({ data }) {
+  // Aggregate data by category
+  const categoryTotals = data.reduce((acc, curr) => {
+    acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
+    return acc;
+  }, {});
+
+  const chartData = Object.keys(categoryTotals).map(key => ({
+    name: key,
+    amount: categoryTotals[key]
+  }));
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="h-64 w-full flex items-center justify-center text-gray-500">
+        <p>No data available</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-64 w-full min-h-[256px] min-w-[300px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+          <XAxis dataKey="name" fontSize={12} />
+          <YAxis />
+          <Tooltip />
+          <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/app/components/TransactionConfirmationModal.jsx">
+'use client'
+import { useState, useEffect } from 'react';
+
+export function TransactionConfirmationModal({
+  isOpen,
+  extractedData,
+  onConfirm,
+  onDiscard,
+  isSaving = false
+}) {
+  const [editedData, setEditedData] = useState(null);
+  const [editingField, setEditingField] = useState(null);
+  const [validationErrors, setValidationErrors] = useState({});
+  const [warnings, setWarnings] = useState({});
+
+  const getConfidence = (field) => {
+    if (!editedData) return 0.5;
+    return editedData.confidence?.[field] ?? 0.5;
+  };
+
+  const isLowConfidence = (field) => {
+    return getConfidence(field) < 0.7;
+  };
+
+  useEffect(() => {
+    if (extractedData) {
+      setEditedData({ ...extractedData });
+      setValidationErrors({});
+      setWarnings({});
+      setEditingField(null);
+    }
+  }, [extractedData]);
+
+  const validateField = (field, value) => {
+    const errors = {};
+    const warns = {};
+    
+    if (field === 'amount') {
+      const numValue = parseFloat(value);
+      if (isNaN(numValue) || numValue <= 0) {
+        errors[field] = 'Amount must be a positive number';
+      } else if (numValue > 100000) {
+        warns[field] = 'Large amount detected - please verify';
+      }
+    }
+    
+    if (field === 'sender' || field === 'receiver') {
+      if (!value || value.trim().length < 2) {
+        errors[field] = 'Name must be at least 2 characters';
+      }
+    }
+    
+    if (field === 'transaction_id') {
+      if (!value || value.trim().length < 4) {
+        errors[field] = 'Transaction ID must be at least 4 characters';
+      }
+    }
+    
+    return { errors, warns };
+  };
+
+  const handleFieldEdit = (field, value) => {
+    const newData = { ...editedData, [field]: value };
+    setEditedData(newData);
+    
+    const { errors, warns } = validateField(field, value);
+    setValidationErrors(prev => ({ ...prev, [field]: errors[field] }));
+    setWarnings(prev => ({ ...prev, [field]: warns[field] }));
+  };
+
+  const handleConfirm = () => {
+    const allErrors = {};
+    const allWarnings = {};
+    
+    Object.keys(editedData).forEach(field => {
+      if (field !== 'confidence') {
+        const { errors, warns } = validateField(field, editedData[field]);
+        if (errors[field]) allErrors[field] = errors[field];
+        if (warns[field]) allWarnings[field] = warns[field];
+      }
+    });
+    
+    setValidationErrors(allErrors);
+    setWarnings(allWarnings);
+    
+    if (Object.keys(allErrors).length === 0) {
+      onConfirm(editedData);
+    }
+  };
+
+  const FieldDisplay = ({ field, label }) => {
+    const isEditing = editingField === field;
+    const hasError = validationErrors[field];
+    const hasWarning = warnings[field];
+    const lowConfidence = isLowConfidence(field);
+    
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-700">{label}</label>
+          <div className="flex items-center gap-2">
+            {lowConfidence && (
+              <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                Low Confidence
+              </span>
+            )}
+            {!isEditing && (
+              <button
+                onClick={() => setEditingField(field)}
+                className="text-xs text-blue-600 hover:text-blue-800"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {isEditing ? (
+          <input
+            type={field === 'amount' ? 'number' : 'text'}
+            value={editedData[field] || ''}
+            onChange={(e) => handleFieldEdit(field, e.target.value)}
+            onBlur={() => setEditingField(null)}
+            className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              hasError ? 'border-red-500' : hasWarning ? 'border-yellow-500' : 'border-gray-300'
+            }`}
+            autoFocus
+          />
+        ) : (
+          <div className={`p-2 border rounded-md ${
+            hasError ? 'border-red-500 bg-red-50' : 
+            hasWarning ? 'border-yellow-500 bg-yellow-50' : 
+            'border-gray-200 bg-gray-50'
+          }`}>
+            <span className={hasError ? 'text-red-700' : hasWarning ? 'text-yellow-700' : 'text-gray-900'}>
+              {editedData[field] || 'Not detected'}
+            </span>
+          </div>
+        )}
+        
+        {hasError && (
+          <p className="text-xs text-red-600">{hasError}</p>
+        )}
+        {hasWarning && (
+          <p className="text-xs text-yellow-600">{hasWarning}</p>
+        )}
+      </div>
+    );
+  };
+
+  if (!isOpen || !extractedData || !editedData) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">Confirm Transaction Details</h2>
+            <button
+              onClick={onDiscard}
+              className="text-gray-400 hover:text-gray-600"
+              disabled={isSaving}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <FieldDisplay field="amount" label="Amount (₹)" />
+            <FieldDisplay field="sender" label="Sender" />
+            <FieldDisplay field="receiver" label="Receiver" />
+            <FieldDisplay field="date" label="Date" />
+            <FieldDisplay field="time" label="Time" />
+            <FieldDisplay field="transaction_id" label="Transaction ID" />
+            <FieldDisplay field="category" label="Category" />
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={handleConfirm}
+              disabled={isSaving || Object.keys(validationErrors).some(key => validationErrors[key])}
+              className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSaving ? 'Saving...' : 'Confirm & Save'}
+            </button>
+            <button
+              onClick={onDiscard}
+              disabled={isSaving}
+              className="flex-1 bg-gray-200 text-gray-800 py-2 px-4 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50"
+            >
+              Discard
+            </button>
+          </div>
+
+          {Object.keys(warnings).some(key => warnings[key]) && (
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                ⚠️ Please review the highlighted fields before confirming.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/app/components/UploadComponent.js">
+'use client'
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { TransactionConfirmationModal } from './TransactionConfirmationModal';
+import { confirmTransaction } from '../../lib/api';
+import { createClient } from '../../lib/supabase/client';
+
+export function UploadComponent() {
+  const [status, setStatus] = useState("idle");
+  const [password, setPassword] = useState("");
+  const [requiresPassword, setRequiresPassword] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [message, setMessage] = useState("");
+  const [extractedData, setExtractedData] = useState(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const router = useRouter();
+
+  function handleFileChange(event) {
+    const file = event.target.files[0];
+    setSelectedFile(file);
+    setRequiresPassword(false);
+    setPassword("");
+    setMessage("");
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus("uploading");
+    setMessage("");
+    
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    if (password) {
+      formData.append('password', password);
+    }
+
+    try {
+      const token = localStorage.getItem('sb-token');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      const response = await fetch('http://localhost:8000/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData,
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('sb-token');
+        router.push('/login');
+        return;
+      }
+
+      const data = await response.json();
+
+      if (data.requires_password) {
+        setRequiresPassword(true);
+        setStatus("idle");
+        setMessage("🔐 This PDF requires a password. Please enter it below.");
+      } else if (data.success && data.extracted_data) {
+        // Show confirmation modal with extracted data
+        setExtractedData(data.extracted_data);
+        setShowConfirmation(true);
+        setStatus("idle");
+        setMessage("");
+        // Reset file input
+        event.target.reset();
+      } else if (data.success || (data.status && data.status.includes("✅"))) {
+        // Fallback for PDF or other success cases
+        setStatus("success");
+        setMessage(data.status || "✅ File processed successfully!");
+        setRequiresPassword(false);
+        setPassword("");
+        setSelectedFile(null);
+        event.target.reset();
+        router.refresh();
+        setTimeout(() => {
+          setStatus("idle");
+          setMessage("");
+        }, 3000);
+      } else {
+        setStatus("error");
+        setMessage(data.status || "❌ Failed to process file");
+      }
+    } catch (error) {
+      console.error(error);
+      setStatus("error");
+      setMessage("❌ Error connecting to server");
+    }
+  }
+
+  const handleConfirmTransaction = async (confirmedData) => {
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        alert("Please login first");
+        return;
+      }
+
+      setIsSaving(true);
+      setStatus("uploading");
+      setMessage("Saving transaction...");
+      
+      // Remove confidence scores before sending (not needed for saving)
+      const { confidence, ...dataToSave } = confirmedData;
+      
+      console.log("Saving transaction:", dataToSave);
+      
+      const result = await confirmTransaction(dataToSave, session.access_token);
+      console.log("Save result:", result);
+      
+      setShowConfirmation(false);
+      setExtractedData(null);
+      setIsSaving(false);
+      setStatus("success");
+      setMessage("✅ Transaction saved successfully!");
+      router.refresh();
+      setTimeout(() => {
+        setStatus("idle");
+        setMessage("");
+      }, 3000);
+    } catch (error) {
+      console.error("Error saving transaction:", error);
+      setIsSaving(false);
+      setStatus("error");
+      setMessage(`❌ Failed to save: ${error.message || "Unknown error"}`);
+      // Keep modal open so user can try again
+    }
+  };
+
+  const handleDiscardTransaction = () => {
+    setShowConfirmation(false);
+    setExtractedData(null);
+    setStatus("idle");
+    setMessage("Transaction discarded");
+    setTimeout(() => {
+      setMessage("");
+    }, 2000);
+  };
+
+  return (
+    <>
+      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="flex gap-4 items-center">
+        <input 
+          type="file" 
+          name="file" 
+          accept="image/*,.pdf"
+          onChange={handleFileChange}
+          required
+          className="block w-full text-sm text-gray-700 bg-white border border-gray-300 rounded-lg p-3
+            file:mr-4 file:py-2 file:px-4
+            file:rounded-lg file:border-0
+            file:text-sm file:font-semibold
+            file:bg-blue-50 file:text-blue-700
+            hover:file:bg-blue-100 cursor-pointer
+            hover:border-blue-400 transition-colors"
+        />
+        <button 
+          type="submit" 
+          disabled={status === "uploading"}
+          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+        >
+          {status === "uploading" ? "Processing..." : "Upload & Scan"}
+        </button>
+      </div>
+      
+      {requiresPassword && (
+        <div className="flex gap-2 items-center p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter PDF password"
+            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={status === "uploading"}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            Submit
+          </button>
+        </div>
+      )}
+      
+      {message && (
+        <div className={`p-3 rounded-lg ${
+          status === "success" ? "bg-green-50 text-green-700 border border-green-200" :
+          status === "error" ? "bg-red-50 text-red-700 border border-red-200" :
+          "bg-yellow-50 text-yellow-700 border border-yellow-200"
+        }`}>
+          {message}
+        </div>
+      )}
+    </form>
+
+    {/* Confirmation Modal */}
+    <TransactionConfirmationModal
+      isOpen={showConfirmation}
+      extractedData={extractedData}
+      onConfirm={handleConfirmTransaction}
+      onDiscard={handleDiscardTransaction}
+      isSaving={isSaving}
+    />
+    </>
+  );
+}
+</file>
+
+<file path="frontend/app/globals.css">
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Fix input text color issues */
+input, textarea, select {
+  color: #171717 !important;
+  background-color: #ffffff !important;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Dark mode input fixes */
+@media (prefers-color-scheme: dark) {
+  input, textarea, select {
+    color: #ededed !important;
+    background-color: #1f2937 !important;
+  }
+  
+  input::placeholder, textarea::placeholder {
+    color: #9ca3af !important;
+  }
+}
+</file>
+
+<file path="frontend/app/layout.jsx">
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata = {
+  title: "Finance AI Agent",
+  description: "AI-powered financial management and expense tracking",
+};
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        {children}
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="frontend/app/login/page.jsx">
+'use client';
+
+import { useState } from 'react';
+import { createClient } from '../../lib/supabase/client';
+import { useRouter } from 'next/navigation';
+
+export default function AuthPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
+  const [error, setError] = useState(null);
+  const [message, setMessage] = useState(null);
+  const router = useRouter();
+  const supabase = createClient();
+
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      if (isLogin) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+        
+        // Store token for API calls
+        if (data.session) {
+          localStorage.setItem('sb-token', data.session.access_token);
+        }
+        
+        router.push('/');
+        router.refresh();
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) throw error;
+        setMessage('Check your email for the confirmation link!');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      
+      if (error) throw error;
+      
+      // The redirect will handle the rest
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="text-center">
+          <h1 className="text-3xl font-light text-gray-900">Finance Manager</h1>
+          <p className="mt-2 text-sm text-gray-600">Track and manage your expenses</p>
+        </div>
+      </div>
+
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white py-8 px-4 shadow-sm border border-gray-200 sm:rounded-xl sm:px-10">
+          <div className="mb-6">
+            <h2 className="text-xl font-medium text-gray-900">
+              {isLogin ? 'Welcome back' : 'Create account'}
+            </h2>
+            <p className="mt-1 text-sm text-gray-600">
+              {isLogin ? 'Sign in to your account to continue' : 'Start tracking your expenses today'}
+            </p>
+          </div>
+
+          {error && (
+            <div className="mb-4 bg-red-50 border border-red-200 p-3 rounded-lg">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
+
+          {message && (
+            <div className="mb-4 bg-green-50 border border-green-200 p-3 rounded-lg">
+              <p className="text-sm text-green-600">{message}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleAuth} className="space-y-6">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                Email address
+              </label>
+              <div className="mt-1">
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <div className="mt-1">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-lg placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Processing...' : isLogin ? 'Sign in' : 'Create account'}
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">Or continue with</span>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+                className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                Continue with Google
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => setIsLogin(!isLogin)}
+              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            >
+              {isLogin ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="frontend/app/page.jsx">
+'use client'
+
+import { UploadComponent } from './components/UploadComponent';
+import { ExpenseChart } from './components/ExpenseChart';
+import { DeleteButton } from './components/DeleteButton';
+import { AiAssistant } from './components/AiAssistant';
+import { BackendCharts } from './components/BackendCharts';
+import { fetchExpenses } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+export default function Home() {
+  const [expenses, setExpenses] = useState([]);
+  const [backendConnected, setBackendConnected] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check authentication
+    const token = localStorage.getItem('sb-token');
+    if (!token) {
+      router.push('/login');
+      return;
+    }
+
+    // Fetch expenses
+    const loadExpenses = async () => {
+      try {
+        const token = localStorage.getItem('sb-token');
+        if (token) {
+          const data = await fetchExpenses(token);
+          setExpenses(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch expenses:", error);
+        if (error.message === "Unauthorized") {
+          localStorage.removeItem('sb-token');
+          router.push('/login');
+          return;
+        }
+        setBackendConnected(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadExpenses();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  const totalAmount = expenses.reduce((sum, item) => sum + item.amount, 0);
+
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        {/* Header Section */}
+        <header className="mb-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-light text-gray-900">Finance Manager</h1>
+              <p className="text-gray-600 mt-1">Track and manage your expenses</p>
+            </div>
+            <div className="flex gap-4 items-center">
+              <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-gray-200">
+                <p className="text-sm text-gray-500 font-medium">Total Spending</p>
+                <p className="text-2xl font-semibold text-gray-900">₹{totalAmount.toFixed(2)}</p>
+              </div>
+              <button 
+                onClick={() => {
+                  localStorage.removeItem('sb-token');
+                  router.push('/login');
+                }}
+                className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-800 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Backend Connection Warning */}
+        {!backendConnected && (
+          <section className="mb-6 bg-amber-50 border border-amber-200 p-4 rounded-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
+                <span className="text-amber-600 text-sm">⚠️</span>
+              </div>
+              <div>
+                <p className="font-medium text-amber-900">Backend server is not running</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  Please start the backend server: <code className="bg-amber-100 px-2 py-1 rounded text-xs">cd backend && uvicorn main:app --reload</code>
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="-mb-px flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('overview')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                activeTab === 'overview'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('upload')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                activeTab === 'upload'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('charts')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                activeTab === 'charts'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Charts
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('assistant')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+                activeTab === 'assistant'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Assistant
+            </button>
+          </nav>
+        </div>
+
+        {activeTab === 'upload' && (
+          <section className="mb-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Upload Documents</h2>
+            <p className="text-sm text-gray-600 mb-6">Upload receipt images or bank statements (PDF)</p>
+            <UploadComponent />
+          </section>
+        )}
+
+        {activeTab === 'overview' && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500 font-medium">Transactions</p>
+                    <p className="text-2xl font-semibold text-gray-900">{expenses.length}</p>
+                  </div>
+                  <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600">📊</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500 font-medium">Categories</p>
+                    <p className="text-2xl font-semibold text-gray-900">{[...new Set(expenses.map(e => e.category))].length}</p>
+                  </div>
+                  <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
+                    <span className="text-green-600">🏷️</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-500 font-medium">Avg Transaction</p>
+                    <p className="text-2xl font-semibold text-gray-900">₹{expenses.length > 0 ? (totalAmount / expenses.length).toFixed(2) : '0'}</p>
+                  </div>
+                  <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
+                    <span className="text-purple-600">💰</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-4">Spending by Category</h2>
+                <ExpenseChart data={expenses} />
+              </section>
+              
+              <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-4">Quick Insights</h2>
+                <div className="space-y-3">
+                  {totalAmount > 20000 && (
+                    <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
+                      <span className="text-red-600">⚠️</span>
+                      <p className="text-sm text-red-800">High spending detected. Consider saving 20% more.</p>
+                    </div>
+                  )}
+                  {expenses.some((e) => e.category === 'Food') && (
+                    <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg">
+                      <span className="text-orange-600">🍔</span>
+                      <p className="text-sm text-orange-800">Food expenses are high. Try meal planning.</p>
+                    </div>
+                  )}
+                  {expenses.length > 0 && (
+                    <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                      <span className="text-blue-600">📈</span>
+                      <p className="text-sm text-blue-800">Most recent: ₹{expenses[0]?.amount} ({expenses[0]?.category})</p>
+                    </div>
+                  )}
+                  {expenses.length === 0 && (
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                      <span className="text-gray-600">📄</span>
+                      <p className="text-sm text-gray-800">No transactions yet. Upload your first receipt!</p>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-medium text-gray-900">Recent Transactions</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sender</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Receiver</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {expenses.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{tx.date}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{tx.time}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{tx.sender}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{tx.receiver}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {tx.category}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">₹{tx.amount}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                          <DeleteButton id={tx.id} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {expenses.length === 0 && (
+                  <div className="text-center py-12">
+                    <div className="text-gray-400 text-5xl mb-4">📊</div>
+                    <p className="text-gray-500">No transactions found</p>
+                    <p className="text-sm text-gray-400 mt-1">Upload a receipt to get started</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          </>
+        )}
+
+        {activeTab === 'charts' && (
+          <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <BackendCharts />
+          </section>
+        )}
+
+        {activeTab === 'assistant' && (
+          <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <AiAssistant />
+          </section>
+        )}
+
+      </div>
+
+    </main>
+  );
+}
+</file>
+
+<file path="frontend/eslint.config.mjs">
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+</file>
+
+<file path="frontend/jsconfig.json">
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  }
+}
+</file>
+
+<file path="frontend/lib/api.js">
+const API_URL = "http://localhost:8000";
+
+export async function fetchExpenses(token) {
+  try {
+    const res = await fetch('http://localhost:8000/expenses', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (res.status === 401) {
+      throw new Error("Unauthorized");
+    }
+    
+    // If the table is empty, Supabase might return an empty array or a 404
+    if (res.status === 404) return []; 
+    
+    if (!res.ok) throw new Error("Failed to fetch expenses");
+    return await res.json();
+  } catch (error) {
+    console.error("Fetch error:", error);
+    if (error.message === "Unauthorized") throw error;
+    return []; // Return empty array so the UI doesn't crash
+  }
+}
+
+export async function deleteTransactionAPI(id, token) {
+  const res = await fetch(`${API_URL}/expenses/${id}`, { 
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (res.status === 401) throw new Error("Unauthorized");
+  if (!res.ok) throw new Error("Failed to delete expense");
+  return res.json();
+}
+
+export async function refreshCharts(token) {
+  const res = await fetch(`${API_URL}/reports/refresh`, { 
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (res.status === 401) throw new Error("Unauthorized");
+  if (!res.ok) throw new Error("Failed to refresh charts");
+  return res.json();
+}
+
+export async function confirmTransaction(transactionData, token) {
+  const res = await fetch(`${API_URL}/transactions/confirm`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(transactionData),
+  });
+  if (res.status === 401) throw new Error("Unauthorized");
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || "Failed to save transaction");
+  }
+  return res.json();
+}
+</file>
+
+<file path="frontend/lib/index.js">
+// Re-export all API functions for easier importing
+export {
+  fetchExpenses,
+  deleteTransactionAPI,
+  refreshCharts,
+  confirmTransaction
+} from './api.js';
+
+export { supabase } from './supabaseClient.js';
+</file>
+
+<file path="frontend/lib/supabase/client.js">
+import { createBrowserClient } from '@supabase/ssr'
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  )
+}
+</file>
+
+<file path="frontend/lib/supabase/server.js">
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export async function createClient() {
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        get(name) {
+          return cookieStore.get(name)?.value
+        },
+        set(name, value, options) {
+          try {
+            cookieStore.set({ name, value, ...options })
+          } catch (error) {
+            // The `set` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+        remove(name, options) {
+          try {
+            cookieStore.set({ name, value: '', ...options })
+          } catch (error) {
+            // The `delete` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+      },
+    }
+  )
+}
+</file>
+
+<file path="frontend/lib/supabaseClient.js">
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+</file>
+
+<file path="frontend/middleware.js">
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse } from 'next/server'
+
+export async function middleware(request) {
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    {
+      cookies: {
+        get(name) {
+          return request.cookies.get(name)?.value
+        },
+        set(name, value, options) {
+          request.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+        },
+        remove(name, options) {
+          request.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+          response = NextResponse.next({
+            request: {
+              headers: request.headers,
+            },
+          })
+        },
+      },
+    }
+  )
+
+  // This will refresh session if expired - required for Server Components
+  // https://supabase.com/docs/guides/auth/server-side/nextjs
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  // Protect routes
+  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  return response
+}
+</file>
+
+<file path="frontend/next-env.d.ts">
+/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+import "./.next/dev/types/routes.d.ts";
+
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
+</file>
+
+<file path="frontend/next.config.js">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Remove invalid webpack experimental option
+}
+
+module.exports = nextConfig
+</file>
+
+<file path="frontend/package.json">
+{
+  "name": "finance-ai-agentusingnext",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NEXT_PRIVATE_SKIP_TURBO=1 next dev",
+    "dev:legacy": "cross-env NODE_OPTIONS='--max-old-space-size=4096' next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@supabase/auth-helpers-nextjs": "^0.15.0",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.89.0",
+    "clsx": "^2.1.1",
+    "firebase": "^12.7.0",
+    "next": "16.1.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "recharts": "^3.6.0",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/react": "19.2.8",
+    "cross-env": "^10.1.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4"
+  }
+}
+</file>
+
+<file path="frontend/postcss.config.mjs">
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+</file>
+
+<file path="frontend/public/file.svg">
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+</file>
+
+<file path="frontend/public/globe.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+</file>
+
+<file path="frontend/public/next.svg">
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+</file>
+
+<file path="frontend/public/vercel.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+</file>
+
+<file path="frontend/public/window.svg">
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+</file>
+
+<file path="frontend/README.md">
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+</file>
+
+<file path="frontend/tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noEmit": true,
+    "incremental": true,
+    "module": "esnext",
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts",
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
+</file>
+
+<file path="README.md">
+# Team Dominion: AI-Powered Financial Advisor & Expense Manager
+
+## Overview
+**Team Dominion** has developed an **AI-powered Financial Advisor & Expense Manager**. This **React-based web application** is designed to simplify personal finance by addressing the manual and time-consuming nature of expense tracking through **automation and AI-driven insights**.
+
+---
+
+## Problem Statement
+Many individuals face challenges in managing personal finances due to:
+* **Manual Tracking**: Tracking expenses is often manual and time-consuming.
+* **Fragmented Data**: Expenses are spread across **UPI apps**, screenshots, and payment receipts.
+* **Lack of Guidance**: There is a lack of **personalized financial guidance** for better budgeting and savings.
+* **Inefficiency**: These factors result in poor financial awareness and inefficient money management.
+
+---
+
+## Our Solution
+We provide a comprehensive platform that automates the financial management process:
+* **Automated Extraction**: Automatically extracts expense details from **payment screenshots using OCR**.
+* **Smart Categorization**: Categorizes expenses into meaningful groups.
+* **AI Financial Advice**: Analyzes spending patterns and provides **AI-driven financial advice**.
+* **Informed Decisions**: Helps users make informed financial decisions with minimal effort.
+
+
+
+---
+
+## Key Features
+* **Screenshot-Based Extraction**: Automatically extracts transaction details using **OCR**.
+* **Automated Categorization**: Classifies expenses into categories such as **Food, Travel, Bills, and Entertainment**.
+* **AI-Powered Financial Advice**: Provides personalized financial tips based on user spending patterns.
+* **Interactive Dashboard**: Displays categorized expenses and insights through a **React-based user interface**.
+* **Modern Web App**: Built as a responsive and scalable **React** application.
+* **Multi-Source Support**: Supports both screenshot uploads and manual expense entries.
+* **Indian Financial Context**: Optimized for **INR currency** and **UPI-based transactions**.
+* **Secure Architecture**: Designed with an API-based backend and **Firebase security**.
+
+---
+
+## Technologies Used
+* **Google Vision API**: Used for **Optical Character Recognition (OCR)** to extract details from screenshots.
+* **Google Gemini (LLM)**: Generates intelligent and **personalized financial advice**.
+* **Firebase Authentication**: Used for **secure user login** and account management.
+* **Frontend**: **React** for a modern, production-ready web application.
+* **Backend**: **Node.js** handles uploads and orchestration.
+* **Services**: **Python services** for OCR extraction and AI categorization.
+
+---
+
+## Team Details
+* **Team Name**: **Team Dominion**
+</file>
+
+<file path="backend/requirements.txt">
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+supabase==2.3.0
+python-dotenv==1.0.0
+pydantic==2.5.0
+pandas==2.1.4
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pdfplumber==0.9.0
+pikepdf==8.13.0
+pandas==2.2.3
+</file>
+
+</files>
