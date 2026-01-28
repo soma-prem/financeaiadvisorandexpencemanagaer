@@ -60,7 +60,7 @@ app = FastAPI()
 
 # Replace with your actual Vercel URL after deployment
 origins = [
-    "https://your-app-name.vercel.app", 
+    "https://financeaiadvisorandexpencemanagaer-theta.vercel.app", 
     "http://localhost:3000",
 ]
 
